@@ -1,61 +1,111 @@
 import os
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, redirect, url_for, flash # Added redirect, url_for, flash
 from privacy_protocol.interpreter import PrivacyInterpreter
+from privacy_protocol.user_preferences import load_user_preferences, save_user_preferences, PREFERENCE_KEYS
+import os
 
 app = Flask(__name__)
+app.secret_key = os.urandom(24) # Needed for flash messages
 
-# Initialize the interpreter
-# spaCy model loading messages might appear in the console here if the model is not found
-# or needs to be downloaded.
+# Initialize interpreter and load keywords
 interpreter = PrivacyInterpreter()
+keywords_path = os.path.join(os.path.dirname(__file__), 'data', 'keywords.json')
+if os.path.exists(keywords_path):
+    interpreter.load_keywords_from_path(keywords_path)
+    print(f"INFO: Keywords loaded from {keywords_path}")
+else:
+    print(f"WARNING: Keywords file not found at {keywords_path}. Keyword analysis will be limited.")
 
-# Construct the absolute path to keywords.json relative to this app.py file
-# __file__ is the path to app.py
-# os.path.dirname(__file__) is the directory 'privacy_protocol/'
-# os.path.join will create 'privacy_protocol/data/keywords.json'
-KEYWORDS_FILE_PATH = os.path.join(os.path.dirname(__file__), 'data', 'keywords.json')
+if interpreter.nlp is None:
+    print("WARNING: spaCy model not loaded. AI Category and clause analysis will be limited.")
 
-# Load keywords once when the app starts
-# Subsequent calls to analyze_text will use these loaded keywords.
-# If keywords.json can change while the app is running, this should be moved into the /analyze route.
-interpreter.load_keywords_from_path(KEYWORDS_FILE_PATH)
-app.interpreter = interpreter # Attach interpreter to the app object
+app.interpreter = interpreter # Attach for tests or other potential uses
 
-if not app.interpreter.keywords_data:
-    print(f"WARNING: Keywords not loaded from {KEYWORDS_FILE_PATH}. Analysis might not work as expected.")
-if app.interpreter.nlp is None:
-    print("WARNING: spaCy NLP model not loaded. Clause detection will be basic or disabled.")
+# Descriptions for preferences page
+PREFERENCE_DESCRIPTIONS = {
+    "data_selling_allowed": {
+        "label": "Data Selling",
+        "description": "Allow the service to sell your personal information to third parties."
+    },
+    "data_sharing_for_ads_allowed": {
+        "label": "Data Sharing for Ads",
+        "description": "Allow sharing your data with third parties for advertising purposes."
+    },
+    "data_sharing_for_analytics_allowed": {
+        "label": "Data Sharing for Analytics",
+        "description": "Allow sharing your data (often anonymized) for service analytics and improvement."
+    },
+    "cookies_for_tracking_allowed": {
+        "label": "Cookies for Tracking",
+        "description": "Allow the use of cookies and similar technologies for tracking your activity across sites/apps."
+    },
+    "policy_changes_notification_required": {
+        "label": "Policy Change Alerts",
+        "description": "Prioritize alerts if the policy indicates how changes are communicated or if changes are frequent."
+    },
+    "childrens_privacy_strict": {
+        "label": "Children's Privacy Protection",
+        "description": "Apply stricter scrutiny or alerts for clauses related to children's data."
+    }
+}
 
-
-@app.route('/', methods=['GET'])
+@app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
     policy_text = request.form.get('policy_text', '')
+    # Load current user preferences for this analysis
+    user_prefs = load_user_preferences()
+    # Pass preferences to interpreter instance attached to app
+    app.interpreter.load_user_preferences(user_prefs)
 
-    # Keywords are already loaded at startup.
-    # If keywords.json could change dynamically, you might reload them here:
-    # interpreter.load_keywords_from_path(KEYWORDS_FILE_PATH)
-    # if not interpreter.keywords_data:
-    #     # Handle error - perhaps render results with an error message
-    #     return "Error: Could not load keywords.json", 500
+    analysis_results = app.interpreter.analyze_text(policy_text)
+    return render_template('results.html',
+                            policy_text=policy_text,
+                            analysis_results=analysis_results,
+                            nlp_available=(app.interpreter.nlp is not None))
 
-    analysis_results = []
-    nlp_available = app.interpreter.nlp is not None
-    if policy_text.strip():
-        if not nlp_available:
-            # Optionally, provide a specific message if NLP isn't working
-            # For now, analyze_text handles this by returning empty or limited results
-            pass
-        analysis_results = app.interpreter.analyze_text(policy_text)
+@app.route('/preferences', methods=['GET', 'POST'])
+def preferences():
+    if request.method == 'POST':
+        current_prefs = load_user_preferences() # Load existing to update
+        for key in PREFERENCE_KEYS.keys(): # Iterate through defined keys
+            # HTML form sends 'true'/'false' as strings
+            submitted_value = request.form.get(key)
+            if submitted_value == 'true':
+                current_prefs[key] = True
+            elif submitted_value == 'false':
+                current_prefs[key] = False
+            # else: maintain existing value if key not in form (should not happen with select)
 
-    return render_template('results.html', policy_text=policy_text, analysis_results=analysis_results, nlp_available=nlp_available)
+        if save_user_preferences(current_prefs):
+            flash('Preferences saved successfully!', 'success')
+        else:
+            flash('Failed to save preferences.', 'error')
+        return redirect(url_for('preferences')) # Redirect to refresh and show flash message
+
+    # For GET request
+    user_prefs = load_user_preferences()
+    return render_template('preferences.html', preferences=user_prefs, preference_descriptions=PREFERENCE_DESCRIPTIONS)
 
 if __name__ == '__main__':
-    # Note: For development, use `flask run`.
-    # `app.run()` is also possible but `flask run` is preferred for development.
-    # Example: FLASK_APP=app.py flask run --host=0.0.0.0 --port=5000
-    # The host and port here are for direct `python app.py` execution if needed.
+    # Ensure user_data directory and default files are set up on first run if not already
+    # This is particularly for direct `python app.py` execution.
+    # In a typical Flask deployment (e.g. with Gunicorn), this might be handled by an init script or startup hook.
+    user_data_dir_path = os.path.join(os.path.dirname(__file__), 'user_data')
+    default_prefs_file_path = os.path.join(user_data_dir_path, 'default_preferences.json')
+
+    if not os.path.exists(default_prefs_file_path):
+        print("INFO: default_preferences.json not found. Initializing user preferences storage...")
+        # This call will create user_data dir and current_user_preferences.json from defaults
+        # (which in turn tries to load default_preferences.json, potentially from hardcoded if file is also missing)
+        load_user_preferences()
+        print("INFO: Initialization check complete.")
+    else:
+        # If default_preferences.json exists, ensure current_user_preferences.json is also primed if missing
+        load_user_preferences()
+
+
     app.run(debug=True, host='0.0.0.0', port=5000)

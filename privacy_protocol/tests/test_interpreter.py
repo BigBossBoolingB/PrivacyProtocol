@@ -7,6 +7,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
 from privacy_protocol.interpreter import PrivacyInterpreter
+from privacy_protocol.user_preferences import get_default_preferences # For default prefs in tests
 
 # Attempt to load spaCy and the model once to determine if NLP-dependent tests can run
 SPACY_MODEL_AVAILABLE = False
@@ -43,6 +44,9 @@ class TestPrivacyInterpreter(unittest.TestCase):
 
         self.interpreter = PrivacyInterpreter()
         self.interpreter.load_keywords_from_path(self.temp_keywords_file)
+        # Load default preferences for tests
+        self.default_prefs = get_default_preferences()
+        self.interpreter.load_user_preferences(self.default_prefs.copy()) # Pass a copy
 
 
     def tearDown(self):
@@ -60,23 +64,28 @@ class TestPrivacyInterpreter(unittest.TestCase):
         self.assertIn("clause_text", sentence_result)
         self.assertEqual(sentence_result["clause_text"], text)
         self.assertIn("ai_category", sentence_result)
-        self.assertEqual(sentence_result["ai_category"], "Data Collection") # Based on dummy classifier
+        self.assertEqual(sentence_result["ai_category"], "Data Collection")
         self.assertIn("keyword_matches", sentence_result)
         self.assertIsInstance(sentence_result["keyword_matches"], list)
         self.assertIn("plain_language_summary", sentence_result)
         self.assertIsInstance(sentence_result["plain_language_summary"], str)
         self.assertEqual(sentence_result["plain_language_summary"],
                          self.interpreter.plain_language_translator.dummy_explanations.get("Data Collection"))
-
+        self.assertIn("user_concern_level", sentence_result)
+        self.assertEqual(sentence_result["user_concern_level"], "Low")
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
     def test_analyze_text_with_one_keyword_match(self):
         text = "We share your information with third-party vendors."
+        # Default prefs: data_sharing_for_ads_allowed = False -> High concern for "Data Sharing" AI category
+        self.interpreter.load_user_preferences(self.default_prefs.copy()) # Ensure fresh default
+        self.interpreter.user_preferences['data_sharing_for_ads_allowed'] = False
+
         results = self.interpreter.analyze_text(text)
         self.assertEqual(len(results), 1)
         sentence_result = results[0]
         self.assertEqual(sentence_result["clause_text"], text)
-        self.assertEqual(sentence_result["ai_category"], "Data Sharing") # Dummy classifier
+        self.assertEqual(sentence_result["ai_category"], "Data Sharing")
         self.assertEqual(len(sentence_result["keyword_matches"]), 1)
         keyword_match = sentence_result["keyword_matches"][0]
         self.assertEqual(keyword_match["keyword"], "third-party")
@@ -84,24 +93,43 @@ class TestPrivacyInterpreter(unittest.TestCase):
         self.assertEqual(keyword_match["category"], "Data Sharing")
         self.assertEqual(sentence_result["plain_language_summary"],
                          self.interpreter.plain_language_translator.dummy_explanations.get("Data Sharing"))
+        self.assertIn("user_concern_level", sentence_result)
+        self.assertEqual(sentence_result["user_concern_level"], "High")
+
+        # Test with data_sharing_for_ads_allowed = True
+        self.interpreter.user_preferences['data_sharing_for_ads_allowed'] = True
+        results_ads_allowed = self.interpreter.analyze_text(text)
+        self.assertEqual(results_ads_allowed[0]["user_concern_level"], "Low")
+
+        self.interpreter.load_user_preferences(self.default_prefs.copy()) # Reset
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
     def test_analyze_text_with_multiple_keywords_in_same_sentence(self):
         text = "Our policy on data selling and user tracking is clear."
+        self.interpreter.load_user_preferences(self.default_prefs.copy()) # Ensure fresh default (data_selling_allowed=False)
         results = self.interpreter.analyze_text(text)
         self.assertEqual(len(results), 1)
         sentence_result = results[0]
         self.assertEqual(sentence_result["clause_text"], text)
-        # AI category will be 'Data Selling' due to rule order and presence of "data selling"
         self.assertEqual(sentence_result["ai_category"], "Data Selling")
         self.assertEqual(len(sentence_result["keyword_matches"]), 2)
+        self.assertIn("user_concern_level", sentence_result)
+        self.assertEqual(sentence_result["user_concern_level"], "High")
 
         found_keywords = sorted([km["keyword"] for km in sentence_result["keyword_matches"]])
         self.assertListEqual(found_keywords, ["data selling", "tracking"])
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_analyze_text_multiple_sentences_varied_matches(self):
-        text = "We collect data for analytics. We do not sell data. We use tracking."
+    def test_analyze_text_multiple_sentences_varied_matches_and_concerns(self):
+        text = "We collect data for analytics. We do not sell data. We use tracking for ads."
+
+        # Ensure preferences are set for this multi-part test
+        current_prefs = self.default_prefs.copy()
+        current_prefs['data_selling_allowed'] = False
+        current_prefs['cookies_for_tracking_allowed'] = False # This will make "tracking for ads" High concern
+        current_prefs['data_sharing_for_ads_allowed'] = False # For later, if "tracking for ads" implies sharing
+        self.interpreter.load_user_preferences(current_prefs)
+
         results = self.interpreter.analyze_text(text)
         self.assertEqual(len(results), 3)
 
@@ -111,6 +139,7 @@ class TestPrivacyInterpreter(unittest.TestCase):
         self.assertEqual(s1["ai_category"], "Data Collection")
         self.assertEqual(len(s1["keyword_matches"]), 0)
         self.assertEqual(s1["plain_language_summary"], self.interpreter.plain_language_translator.dummy_explanations.get("Data Collection"))
+        self.assertEqual(s1["user_concern_level"], "Low")
 
         # Sentence 2: "We do not sell data."
         s2 = results[1]
@@ -118,65 +147,85 @@ class TestPrivacyInterpreter(unittest.TestCase):
         self.assertEqual(s2["ai_category"], "Data Selling")
         self.assertEqual(len(s2["keyword_matches"]), 0)
         self.assertEqual(s2["plain_language_summary"], self.interpreter.plain_language_translator.dummy_explanations.get("Data Selling"))
+        self.assertEqual(s2["user_concern_level"], "High") # Due to data_selling_allowed = False
 
-        # Sentence 3: "We use tracking."
+        # Sentence 3: "We use tracking for ads."
         s3 = results[2]
-        self.assertEqual(s3["clause_text"], "We use tracking.")
+        self.assertEqual(s3["clause_text"], "We use tracking for ads.")
         self.assertEqual(s3["ai_category"], "Cookies and Tracking Technologies")
         self.assertEqual(len(s3["keyword_matches"]), 1)
         self.assertEqual(s3["keyword_matches"][0]["keyword"], "tracking")
         self.assertEqual(s3["plain_language_summary"], self.interpreter.plain_language_translator.dummy_explanations.get("Cookies and Tracking Technologies"))
+        self.assertEqual(s3["user_concern_level"], "High") # Due to cookies_for_tracking_allowed = False
 
+        self.interpreter.load_user_preferences(self.default_prefs.copy()) # Reset
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
     def test_analyze_text_keyword_case_insensitivity(self):
         text = "This policy mentions Third-Party services."
+        self.interpreter.load_user_preferences(self.default_prefs.copy())
+        self.interpreter.user_preferences['data_sharing_for_ads_allowed'] = False # Makes Data Sharing High concern
+
         results = self.interpreter.analyze_text(text)
         self.assertEqual(len(results), 1)
         sentence_result = results[0]
         self.assertEqual(sentence_result["clause_text"], text)
-        self.assertEqual(sentence_result["ai_category"], "Data Sharing") # Dummy classifier
+        self.assertEqual(sentence_result["ai_category"], "Data Sharing")
         self.assertEqual(len(sentence_result["keyword_matches"]), 1)
         self.assertEqual(sentence_result["keyword_matches"][0]["keyword"], "third-party")
+        self.assertEqual(sentence_result["user_concern_level"], "High")
+        self.interpreter.load_user_preferences(self.default_prefs.copy())
+
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_analyze_text_empty_string_after_strip_no_results(self): # Renamed
+    def test_analyze_text_empty_string_after_strip_no_results(self):
         text = "     .     "
         results = self.interpreter.analyze_text(text)
         if results:
             self.assertEqual(len(results), 1)
-            self.assertEqual(results[0]['clause_text'], ".")
-            self.assertEqual(results[0]['ai_category'], 'Other')
-            self.assertEqual(len(results[0]['keyword_matches']), 0)
+            sentence_result = results[0]
+            self.assertEqual(sentence_result['clause_text'], ".")
+            self.assertEqual(sentence_result['ai_category'], 'Other')
+            self.assertEqual(len(sentence_result['keyword_matches']), 0)
+            self.assertEqual(sentence_result['user_concern_level'], "None") # 'Other' and no keywords = 'None'
         else:
             self.assertEqual(len(results), 0)
 
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_negation_direct_not_no_keyword_match(self): # Renamed
+    def test_negation_direct_not_no_keyword_match(self):
         text = "We do not share third-party data."
+        self.interpreter.load_user_preferences(self.default_prefs.copy())
+        self.interpreter.user_preferences['data_sharing_for_ads_allowed'] = False
+
         results = self.interpreter.analyze_text(text)
         self.assertEqual(len(results), 1)
         sentence_result = results[0]
         self.assertEqual(sentence_result["clause_text"], text)
         self.assertEqual(sentence_result["ai_category"], "Data Sharing")
-        self.assertEqual(len(sentence_result["keyword_matches"]), 0,
-                         "Keyword 'third-party' should be negated by 'not' and not in keyword_matches.")
+        self.assertEqual(len(sentence_result["keyword_matches"]), 0)
+        self.assertEqual(sentence_result["user_concern_level"], "High") # AI cat is still Data Sharing, pref makes it High
+        self.interpreter.load_user_preferences(self.default_prefs.copy())
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_negation_direct_no_no_keyword_match(self): # Renamed
+    def test_negation_direct_no_no_keyword_match(self):
         text = "There is no data selling."
+        self.interpreter.load_user_preferences(self.default_prefs.copy()) # data_selling_allowed = False by default
+
         results = self.interpreter.analyze_text(text)
         self.assertEqual(len(results), 1)
         sentence_result = results[0]
         self.assertEqual(sentence_result["clause_text"], text)
         self.assertEqual(sentence_result["ai_category"], "Data Selling")
-        self.assertEqual(len(sentence_result["keyword_matches"]), 0,
-                         "Keyword 'data selling' should be negated by 'no' and not in keyword_matches.")
+        self.assertEqual(len(sentence_result["keyword_matches"]), 0)
+        self.assertEqual(sentence_result["user_concern_level"], "High") # AI cat + pref
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_keyword_not_negated_is_matched(self): # Renamed
+    def test_keyword_not_negated_is_matched(self):
         text = "We may use third-party services."
+        self.interpreter.load_user_preferences(self.default_prefs.copy())
+        self.interpreter.user_preferences['data_sharing_for_ads_allowed'] = False # To make it High
+
         results = self.interpreter.analyze_text(text)
         self.assertEqual(len(results), 1)
         sentence_result = results[0]
@@ -184,19 +233,27 @@ class TestPrivacyInterpreter(unittest.TestCase):
         self.assertEqual(sentence_result["ai_category"], "Data Sharing")
         self.assertEqual(len(sentence_result["keyword_matches"]), 1)
         self.assertEqual(sentence_result["keyword_matches"][0]["keyword"], "third-party")
+        self.assertEqual(sentence_result["user_concern_level"], "High")
+        self.interpreter.load_user_preferences(self.default_prefs.copy())
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_analyze_text_no_keywords_in_text_but_ai_categories(self): # Renamed
+    def test_analyze_text_no_keywords_in_text_but_ai_categories(self):
         text = "We collect your information for our records. This is important for us."
+        self.interpreter.load_user_preferences(self.default_prefs.copy())
         results = self.interpreter.analyze_text(text)
         self.assertEqual(len(results), 2)
-        self.assertEqual(results[0]['clause_text'], "We collect your information for our records.")
-        self.assertEqual(results[0]['ai_category'], "Data Collection")
-        self.assertEqual(len(results[0]['keyword_matches']), 0)
 
-        self.assertEqual(results[1]['clause_text'], "This is important for us.")
-        self.assertEqual(results[1]['ai_category'], "Other")
-        self.assertEqual(len(results[1]['keyword_matches']), 0)
+        s1 = results[0]
+        self.assertEqual(s1['clause_text'], "We collect your information for our records.")
+        self.assertEqual(s1['ai_category'], "Data Collection")
+        self.assertEqual(len(s1['keyword_matches']), 0)
+        self.assertEqual(s1['user_concern_level'], "Low")
+
+        s2 = results[1]
+        self.assertEqual(s2['clause_text'], "This is important for us.")
+        self.assertEqual(s2['ai_category'], "Other")
+        self.assertEqual(len(s2['keyword_matches']), 0)
+        self.assertEqual(s2['user_concern_level'], "None")
 
 
     # --- NLP Independent Tests (or tests that should behave gracefully if NLP is absent) ---
@@ -222,6 +279,7 @@ class TestPrivacyInterpreter(unittest.TestCase):
         self.interpreter.keywords_data = {
             "new_keyword_test": {}
         }
+        self.interpreter.load_user_preferences(self.default_prefs.copy()) # Ensure prefs
 
         text = "This policy has a new_keyword_test."
         results = self.interpreter.analyze_text(text)
@@ -231,23 +289,27 @@ class TestPrivacyInterpreter(unittest.TestCase):
         self.assertEqual(len(results), 1)
         sentence_result = results[0]
         self.assertEqual(sentence_result['clause_text'], text)
+        self.assertEqual(sentence_result['ai_category'], "Other") # No AI rule for "new_keyword_test"
 
         self.assertEqual(len(sentence_result['keyword_matches']), 1)
         keyword_match = sentence_result['keyword_matches'][0]
         self.assertEqual(keyword_match["keyword"], "new_keyword_test")
         self.assertEqual(keyword_match["explanation"], "No explanation available.")
         self.assertEqual(keyword_match["category"], "Uncategorized")
+        self.assertEqual(sentence_result['user_concern_level'], "Low") # Has keyword, but no specific pref rule triggers High/Medium for 'Other' AI cat / 'Uncategorized' keyword cat
 
 
     def test_loading_nonexistent_keywords_file_returns_empty_results(self):
         temp_interpreter = PrivacyInterpreter()
         temp_interpreter.load_keywords_from_path("nonexistent_keywords.json")
+        temp_interpreter.load_user_preferences(self.default_prefs.copy()) # Load prefs for temp interpreter
         self.assertEqual(temp_interpreter.keywords_data, {})
 
         results = temp_interpreter.analyze_text("Some text with potential keywords.")
         if temp_interpreter.nlp:
             for sentence_result in results:
                 self.assertEqual(len(sentence_result["keyword_matches"]), 0)
+                # AI cat could be something, concern would be Low or None
         else:
             self.assertEqual(len(results), 0)
 
@@ -258,6 +320,7 @@ class TestPrivacyInterpreter(unittest.TestCase):
 
         temp_interpreter = PrivacyInterpreter()
         temp_interpreter.load_keywords_from_path(corrupted_file)
+        temp_interpreter.load_user_preferences(self.default_prefs.copy())
 
         if os.path.exists(corrupted_file):
             os.remove(corrupted_file)

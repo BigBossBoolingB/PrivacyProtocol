@@ -8,6 +8,7 @@ class PrivacyInterpreter:
     def __init__(self):
         self.keywords_data = {}
         self.nlp = None
+        self.user_preferences = None # Add this
         try:
             self.nlp = spacy.load("en_core_web_sm")
         except OSError:
@@ -22,6 +23,10 @@ class PrivacyInterpreter:
 
         self.plain_language_translator = PlainLanguageTranslator()
         self.plain_language_translator.load_model() # Currently a no-op
+
+    def load_user_preferences(self, preferences_data):
+        """Loads user preferences into the interpreter."""
+        self.user_preferences = preferences_data
 
     def load_keywords_from_path(self, keywords_file_path):
         try:
@@ -98,27 +103,62 @@ class PrivacyInterpreter:
 
             summary = self.plain_language_translator.translate(sentence_text, ai_category)
 
+            # Determine user_concern_level
+            user_concern_level = 'None' # Default
+            has_findings = (ai_category != 'Other') or bool(current_keyword_matches)
+
+            if self.user_preferences: # Only apply if preferences are loaded
+                # AI Category Checks
+                if ai_category == 'Data Selling' and not self.user_preferences.get('data_selling_allowed', True):
+                    user_concern_level = 'High'
+                elif ai_category == 'Data Sharing' and not self.user_preferences.get('data_sharing_for_ads_allowed', True) and user_concern_level != 'High':
+                    # Simplified: considering any 'Data Sharing' if ads sharing is disallowed.
+                    # A more granular AI category (e.g., 'Data Sharing for Advertising') would be better.
+                    user_concern_level = 'High'
+                elif ai_category == 'Cookies and Tracking Technologies' and not self.user_preferences.get('cookies_for_tracking_allowed', True) and user_concern_level != 'High':
+                    user_concern_level = 'High'
+                elif ai_category == 'Childrens Privacy' and self.user_preferences.get('childrens_privacy_strict', False) and user_concern_level != 'High':
+                    user_concern_level = 'High'
+                elif ai_category == 'Policy Change' and self.user_preferences.get('policy_changes_notification_required', False) and user_concern_level != 'High':
+                    user_concern_level = 'Medium'
+
+                # Keyword Match Checks (can elevate concern)
+                # This is a basic example; can be more sophisticated
+                for kw_match in current_keyword_matches:
+                    if kw_match['category'] == 'Data Selling' and not self.user_preferences.get('data_selling_allowed', True):
+                        user_concern_level = 'High'
+                        break
+                    # Add more keyword-category to preference checks if needed
+
+            if user_concern_level == 'None' and has_findings:
+                user_concern_level = 'Low'
+
             analyzed_sentences.append({
                 "clause_text": sentence_text,
                 "ai_category": ai_category,
                 "keyword_matches": current_keyword_matches,
-                "plain_language_summary": summary
+                "plain_language_summary": summary,
+                "user_concern_level": user_concern_level
             })
 
         return analyzed_sentences
 
 if __name__ == '__main__':
-    # This block is for basic, direct testing of the interpreter.
-    # Assumes being run from the 'privacy_protocol/privacy_protocol' directory.
-    script_dir = os.path.dirname(__file__)
-    # Path relative to this script to reach project_root/data/keywords.json
-    # Corrected path: from privacy_protocol/privacy_protocol, go up one level to privacy_protocol/, then data/
-    keywords_path = os.path.join(script_dir, '..', 'data', 'keywords.json')
+    from .user_preferences import get_default_preferences # For __main__ example
 
-    # The print below is for the __main__ block's own feedback, not a class diagnostic
+    script_dir = os.path.dirname(__file__)
+    keywords_path = os.path.join(script_dir, '..', 'data', 'keywords.json')
     print(f"Info: Attempting to load keywords for __main__ execution from: {keywords_path}")
 
     interpreter = PrivacyInterpreter()
+
+    # Load sample preferences for the __main__ example
+    sample_prefs = get_default_preferences()
+    sample_prefs['data_selling_allowed'] = False
+    sample_prefs['cookies_for_tracking_allowed'] = False
+    interpreter.load_user_preferences(sample_prefs)
+    print(f"Info: Loaded sample user preferences for __main__: {sample_prefs}")
+
 
     if interpreter.nlp is None:
         print("Exiting example: spaCy model 'en_core_web_sm' not loaded or available.")
@@ -129,11 +169,11 @@ if __name__ == '__main__':
         else:
             sample_text = (
                 "We collect your personal data for service provision. "
-                "We do not sell your data. "
-                "However, we may share your information with trusted third-party service providers for analytics. "
-                "You have the right to access your data. "
-                "We use cookies for tracking purposes and site functionality. "
-                "This policy might change. Our contact is policy@example.com."
+                "We do not sell your data. " # AI: Data Selling, Keyword: (none due to negation) -> Concern: High (if data_selling_allowed=false)
+                "However, we may share your information with trusted third-party service providers for analytics. " # AI: Data Sharing -> Concern: Low (if data_sharing_for_ads_allowed=false but this is analytics)
+                "You have the right to access your data. " # AI: User Rights -> Concern: Low
+                "We use cookies for tracking purposes and site functionality. " # AI: Cookies/Tracking, Keyword: cookies, tracking -> Concern: High (if cookies_for_tracking_allowed=false)
+                "This policy might change. Our contact is policy@example.com." # AI: Policy Change -> Concern: Medium (if policy_changes_notification_required=true)
             )
             print(f"\nAnalyzing sample text:\n------------------------\n{sample_text}\n------------------------\n")
 
@@ -145,6 +185,7 @@ if __name__ == '__main__':
                     print(f"\nSentence: \"{sentence_analysis['clause_text']}\"")
                     print(f"  AI Category: {sentence_analysis['ai_category']}")
                     print(f"  Plain Summary: {sentence_analysis['plain_language_summary']}")
+                    print(f"  User Concern Level: {sentence_analysis['user_concern_level']}")
                     if sentence_analysis['keyword_matches']:
                         print("  Keyword Matches:")
                         for match in sentence_analysis['keyword_matches']:
