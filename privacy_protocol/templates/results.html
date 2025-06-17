@@ -7,6 +7,22 @@
         body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
         .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
         h1, h2, h3 { color: #333; }
+        .risk-summary-box {
+            background-color: #fff3cd; /* Light yellow, often used for alerts */
+            border: 1px solid #ffeeba;
+            color: #856404;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .risk-summary-box h3 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .risk-score-value {
+            font-weight: bold;
+            font-size: 1.2em;
+        }
         .policy-text { background-color: #e9e9e9; padding: 15px; border-radius: 4px; margin-bottom: 20px; white-space: pre-wrap; font-family: monospace; max-height: 200px; overflow-y: auto; border: 1px solid #ddd;}
         .sentence-block { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; }
         .sentence-text { font-style: italic; color: #555; margin-bottom: 10px; }
@@ -31,6 +47,17 @@
 <body>
     <div class="container">
         <h1>Analysis Results</h1>
+
+        {% if risk_assessment %}
+        <div class="risk-summary-box">
+            <h3>Overall Privacy Risk Assessment</h3>
+            <p><strong>Overall Risk Score:</strong> <span class="risk-score-value">{{ risk_assessment.overall_risk_score }}</span></p>
+            <p><strong>High Concern Clauses:</strong> {{ risk_assessment.high_concern_count }}</p>
+            <p><strong>Medium Concern Clauses:</strong> {{ risk_assessment.medium_concern_count }}</p>
+            <p><strong>Low Concern Clauses:</strong> {{ risk_assessment.low_concern_count }}</p>
+            <p><strong>Uncategorized/No Concern Clauses:</strong> {{ risk_assessment.none_concern_count }}</p> <!-- Optional to display -->
+        </div>
+        {% endif %}
 
         <h2>Original Policy Text:</h2>
         <div class="policy-text">{{ policy_text if policy_text else "No text submitted." }}</div>

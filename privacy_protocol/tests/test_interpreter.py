@@ -53,6 +53,50 @@ class TestPrivacyInterpreter(unittest.TestCase):
         if os.path.exists(self.temp_keywords_file):
             os.remove(self.temp_keywords_file)
 
+    # --- Tests for calculate_risk_assessment ---
+    def test_calculate_risk_assessment_empty_input(self):
+        assessment = self.interpreter.calculate_risk_assessment([])
+        self.assertEqual(assessment['overall_risk_score'], 0)
+        self.assertEqual(assessment['high_concern_count'], 0)
+        self.assertEqual(assessment['medium_concern_count'], 0)
+        self.assertEqual(assessment['low_concern_count'], 0)
+        self.assertEqual(assessment['none_concern_count'], 0)
+
+    def test_calculate_risk_assessment_mixed_concerns(self):
+        analyzed_data = [
+            {'user_concern_level': 'High', 'clause_text': 'Sentence 1'},
+            {'user_concern_level': 'High', 'clause_text': 'Sentence 2'},
+            {'user_concern_level': 'Medium', 'clause_text': 'Sentence 3'},
+            {'user_concern_level': 'Low', 'clause_text': 'Sentence 4'},
+            {'user_concern_level': 'None', 'clause_text': 'Sentence 5'},
+            {'user_concern_level': 'Medium', 'clause_text': 'Sentence 6'}
+        ]
+        assessment = self.interpreter.calculate_risk_assessment(analyzed_data)
+        # Expected: (2 * 10) + (2 * 5) + (1 * 1) = 20 + 10 + 1 = 31
+        self.assertEqual(assessment['overall_risk_score'], 31)
+        self.assertEqual(assessment['high_concern_count'], 2)
+        self.assertEqual(assessment['medium_concern_count'], 2)
+        self.assertEqual(assessment['low_concern_count'], 1)
+        self.assertEqual(assessment['none_concern_count'], 1)
+
+    def test_calculate_risk_assessment_only_low_concerns(self):
+        analyzed_data = [
+            {'user_concern_level': 'Low', 'clause_text': 'Sentence 1'},
+            {'user_concern_level': 'Low', 'clause_text': 'Sentence 2'}
+        ]
+        assessment = self.interpreter.calculate_risk_assessment(analyzed_data)
+        self.assertEqual(assessment['overall_risk_score'], 2)
+        self.assertEqual(assessment['high_concern_count'], 0)
+        self.assertEqual(assessment['medium_concern_count'], 0)
+        self.assertEqual(assessment['low_concern_count'], 2)
+        self.assertEqual(assessment['none_concern_count'], 0)
+
+    def test_calculate_risk_assessment_with_missing_concern_key(self):
+        analyzed_data = [{'clause_text': 'Sentence 1'}] # Missing 'user_concern_level'
+        assessment = self.interpreter.calculate_risk_assessment(analyzed_data)
+        self.assertEqual(assessment['overall_risk_score'], 0) # Defaults to 'None'
+        self.assertEqual(assessment['none_concern_count'], 1)
+
     # --- NLP Dependent Tests ---
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
     def test_analyze_text_structure_and_ai_category(self):

@@ -143,6 +143,44 @@ class PrivacyInterpreter:
 
         return analyzed_sentences
 
+    def calculate_risk_assessment(self, analyzed_sentences_data):
+        overall_risk_score = 0
+        high_concern_count = 0
+        medium_concern_count = 0
+        low_concern_count = 0
+        none_concern_count = 0 # Optional, for completeness
+
+        if not analyzed_sentences_data:
+            return {
+                'overall_risk_score': 0,
+                'high_concern_count': 0,
+                'medium_concern_count': 0,
+                'low_concern_count': 0,
+                'none_concern_count': 0
+            }
+
+        for sentence_analysis in analyzed_sentences_data:
+            concern_level = sentence_analysis.get('user_concern_level', 'None') # Default to 'None'
+            if concern_level == 'High':
+                overall_risk_score += 10
+                high_concern_count += 1
+            elif concern_level == 'Medium':
+                overall_risk_score += 5
+                medium_concern_count += 1
+            elif concern_level == 'Low':
+                overall_risk_score += 1
+                low_concern_count += 1
+            else: # 'None'
+                none_concern_count +=1
+
+        return {
+            'overall_risk_score': overall_risk_score,
+            'high_concern_count': high_concern_count,
+            'medium_concern_count': medium_concern_count,
+            'low_concern_count': low_concern_count,
+            'none_concern_count': none_concern_count
+        }
+
 if __name__ == '__main__':
     from .user_preferences import get_default_preferences # For __main__ example
 
@@ -194,5 +232,14 @@ if __name__ == '__main__':
                             print(f"      Explanation: {match['explanation']}")
                     else:
                         print("  No keyword matches in this sentence.")
+
+                # Calculate and print risk assessment
+                risk_assessment = interpreter.calculate_risk_assessment(analysis_results)
+                print("\n\n--- Risk Assessment (Interpreter Example) ---")
+                print(f"Overall Risk Score: {risk_assessment['overall_risk_score']}")
+                print(f"High Concern Sentences: {risk_assessment['high_concern_count']}")
+                print(f"Medium Concern Sentences: {risk_assessment['medium_concern_count']}")
+                print(f"Low Concern Sentences: {risk_assessment['low_concern_count']}")
+                print(f"None Concern Sentences: {risk_assessment['none_concern_count']}")
             else:
                 print("No analysis results from the interpreter example (this might also happen if NLP model is missing).")

@@ -62,9 +62,12 @@ def analyze():
     app.interpreter.load_user_preferences(user_prefs)
 
     analysis_results = app.interpreter.analyze_text(policy_text)
+    risk_assessment = app.interpreter.calculate_risk_assessment(analysis_results)
+
     return render_template('results.html',
                             policy_text=policy_text,
                             analysis_results=analysis_results,
+                            risk_assessment=risk_assessment, # Add this
                             nlp_available=(app.interpreter.nlp is not None))
 
 @app.route('/preferences', methods=['GET', 'POST'])
