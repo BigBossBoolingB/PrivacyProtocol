@@ -54,7 +54,7 @@ class TestWebApp(unittest.TestCase):
         """Test the /analyze endpoint with empty policy_text."""
         response = self.client.post('/analyze', data={'policy_text': ''})
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"No concerning keywords found, the input was empty", response.data)
+        self.assertIn(b"No analysis results to display. Input might have been empty or no clauses were processed.", response.data)
         # Also check that the original text area shows "No text submitted" or similar
         self.assertIn(b"No text submitted.", response.data)
 
@@ -67,18 +67,21 @@ class TestWebApp(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
 
         # Check for original policy text
-        self.assertIn(sample_text.encode(), response.data)
+        self.assertIn(sample_text.encode(), response.data) # Original text should be there
 
-        # Check for keyword "third-party"
-        self.assertIn(b"<h3>Keyword Found: third-party</h3>", response.data)
-        self.assertIn(b"<p><strong>Category:</strong> Data Sharing</p>", response.data)
-        self.assertIn(b"<p><strong>Explanation:</strong>", response.data) # Check for start of explanation line
-        self.assertIn(b'<p><strong>Clause Text:</strong> "' + sample_text.encode() + b'"</p>', response.data)
+        # Expecting one sentence block for this input
+        self.assertIn(b'<div class="sentence-block">', response.data)
+        self.assertIn(b'<p class="sentence-text"><strong>Sentence:</strong> We share your data with third-party advertising partners for tracking purposes.</p>', response.data)
+        self.assertIn(b'<p class="ai-category">AI Predicted Category: Data Sharing</p>', response.data) # Dummy AI prediction
 
-        # Check for keyword "tracking"
-        self.assertIn(b"<h3>Keyword Found: tracking</h3>", response.data)
-        self.assertIn(b"<p><strong>Category:</strong> User Activity Monitoring</p>", response.data)
-        self.assertIn(b'<p><strong>Clause Text:</strong> "' + sample_text.encode() + b'"</p>', response.data)
+        # Check for keyword "third-party" details
+        self.assertIn(b"<strong>Keyword:</strong> third-party", response.data)
+        self.assertIn(b"<strong>Original Category:</strong> Data Sharing", response.data)
+        self.assertIn(b"<strong>Explanation:</strong> This means your data may be shared", response.data) # Partial explanation
+
+        # Check for keyword "tracking" details
+        self.assertIn(b"<strong>Keyword:</strong> tracking", response.data)
+        self.assertIn(b"<strong>Original Category:</strong> User Activity Monitoring", response.data)
 
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available for this test.")
@@ -88,14 +91,27 @@ class TestWebApp(unittest.TestCase):
         response = self.client.post('/analyze', data={'policy_text': sample_text})
         self.assertEqual(response.status_code, 200)
 
-        self.assertIn(sample_text.encode(), response.data)
+        self.assertIn(sample_text.encode(), response.data) # Original text
 
-        # "data selling" should NOT be flagged
-        self.assertNotIn(b"Keyword Found: data selling", response.data)
-        # Depending on other keywords, either "No concerning keywords" or other keywords might appear.
-        # For this specific text, assuming "data selling" is the only relevant keyword from keywords.json:
-        if b"Keyword Found:" not in response.data: # Check if NO keywords were flagged at all
-             self.assertIn(b"No concerning keywords found", response.data)
+        # The sentence "We do not sell data ever." will be analyzed.
+        # AI category might be "Other" or something specific if "sell data" hits a rule.
+        # Keyword "data selling" should NOT be in keyword_matches for this sentence.
+
+        # Example check: Ensure the "data selling" keyword is not listed under keyword matches.
+        # This is a bit tricky because the keyword might appear as part of AI category rule.
+        # A robust check would parse the HTML or be very specific about the keyword match section.
+        # For now, let's check that the specific "Keyword: data selling" HTML for a match is not present.
+        self.assertNotIn(b"<strong>Keyword:</strong> data selling", response.data)
+
+        # Check that the sentence "We do not sell data ever." is present
+        self.assertIn(b"<p class=\"sentence-text\"><strong>Sentence:</strong> We do not sell data ever.</p>", response.data)
+        # Check its AI category (e.g., 'Other' or if 'sell data' matches a rule like 'Data Selling' for AI)
+        # This depends on how the dummy AI classifier handles "sell data".
+        # Current dummy rule for Data Selling: [r'shares?', r'discloses?', r'third-part(y|ies)', r'partners?', r'vendors?', r'service providers?', r'transfers? data']
+        # So "sell data" would likely be 'Other' by AI.
+        self.assertIn(b'<p class="ai-category">AI Predicted Category: Other</p>', response.data) # Assuming "sell data" is not a specific AI rule keyword
+        # And that there are no keyword matches reported for this sentence
+        self.assertIn(b"<em>No specific keywords flagged in this sentence by the keyword scanner.</em>", response.data)
 
 
     @unittest.skipIf(SPACY_MODEL_AVAILABLE, "spaCy model IS available, skipping test for NLP unavailable scenario.")

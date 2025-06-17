@@ -2,21 +2,23 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analysis Results</title>
+    <title>Privacy Analysis Results</title>
     <style>
         body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
-        .container { max-width: 800px; margin: auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
         h1, h2, h3 { color: #333; }
-        h1 { text-align: center; }
-        .policy-text-display { background-color: #eee; padding: 15px; border-radius: 4px; margin-bottom: 20px; white-space: pre-wrap; font-family: monospace; max-height: 300px; overflow-y: auto; }
-        .result-item { border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 4px; background-color: #f9f9f9; }
-        .result-item h3 { margin-top: 0; color: #d9534f; }
-        .result-item p { margin-bottom: 8px; }
-        .result-item strong { color: #555; }
-        .no-results { text-align: center; color: #777; font-size: 1.1em; }
-        a.back-link { display: inline-block; margin-top: 20px; padding: 10px 15px; background-color: #5bc0de; color: white; text-decoration: none; border-radius: 4px; }
-        a.back-link:hover { background-color: #46b8da; }
+        .policy-text { background-color: #e9e9e9; padding: 15px; border-radius: 4px; margin-bottom: 20px; white-space: pre-wrap; font-family: monospace; max-height: 200px; overflow-y: auto; border: 1px solid #ddd;}
+        .sentence-block { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; }
+        .sentence-text { font-style: italic; color: #555; margin-bottom: 10px; }
+        .ai-category { font-weight: bold; color: #0056b3; margin-bottom: 10px; }
+        .keyword-match { margin-left: 20px; padding: 10px; border-left: 3px solid #007bff; background-color: #e7f3ff; margin-bottom: 5px; border-radius: 4px; }
+        .keyword-match p { margin: 5px 0; }
+        .no-results { color: #777; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .back-link { display: inline-block; margin-top: 20px; padding: 10px 15px; background-color: #5bc0de; color: white; text-decoration: none; border-radius: 4px; }
+        .back-link:hover { background-color: #46b8da; }
+        .note { color: orange; margin-top: 20px; font-size: 0.9em; }
     </style>
 </head>
 <body>
@@ -24,28 +26,38 @@
         <h1>Analysis Results</h1>
 
         <h2>Original Policy Text:</h2>
-        <div class="policy-text-display">
-            {{ policy_text if policy_text else "No text submitted." }}
-        </div>
+        <div class="policy-text">{{ policy_text if policy_text else "No text submitted." }}</div>
 
-        <h2>Flagged Clauses:</h2>
+        <h2>Detailed Analysis:</h2>
         {% if analysis_results %}
-            {% for item in analysis_results %}
-                <div class="result-item">
-                    <h3>Keyword Found: {{ item.keyword }}</h3>
-                    <p><strong>Category:</strong> {{ item.category }}</p>
-                    <p><strong>Clause Text:</strong> "{{ item.clause_text }}"</p>
-                    <p><strong>Explanation:</strong> {{ item.explanation }}</p>
+            {% for sentence_analysis in analysis_results %}
+                <div class="sentence-block">
+                    <p class="sentence-text"><strong>Sentence:</strong> {{ sentence_analysis.clause_text }}</p>
+                    <p class="ai-category">AI Predicted Category: {{ sentence_analysis.ai_category }}</p>
+
+                    {% if sentence_analysis.keyword_matches %}
+                        <p><strong>Keyword Matches in this sentence:</strong></p>
+                        {% for match in sentence_analysis.keyword_matches %}
+                            <div class="keyword-match">
+                                <p><strong>Keyword:</strong> {{ match.keyword }}</p>
+                                <p><strong>Original Category:</strong> {{ match.category }}</p>
+                                <p><strong>Explanation:</strong> {{ match.explanation }}</p>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <p><em>No specific keywords flagged in this sentence by the keyword scanner.</em></p>
+                    {% endif %}
                 </div>
             {% endfor %}
         {% else %}
-            <p class="no-results">No concerning keywords found, the input was empty, or NLP model for clause detection is not available.</p>
-            {% if interpreter and interpreter.nlp is none %}
-                 <p class.no-results>Note: The spaCy NLP model 'en_core_web_sm' was not loaded, so clause detection capabilities are limited. Please check console messages from when the server started.</p>
-            {% endif %}
+            <p class="no-results">No analysis results to display. Input might have been empty or no clauses were processed.</p>
         {% endif %}
 
-        <a href="{{ url_for('index') }}" class="back-link">&larr; Analyze Another Policy</a>
+        {% if not nlp_available %}
+            <p class="note"><strong>Note:</strong> The spaCy NLP model (en_core_web_sm) was not available when the server started. Sentence segmentation and AI categorization quality might be affected or disabled. Keyword spotting might still work based on simpler rules if implemented as a fallback in the interpreter.</p>
+        {% endif %}
+
+        <a href="{{ url_for('index') }}" class="back-link">&larr; Analyze another policy</a>
     </div>
 </body>
 </html>

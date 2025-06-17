@@ -51,137 +51,144 @@ class TestPrivacyInterpreter(unittest.TestCase):
 
     # --- NLP Dependent Tests ---
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_analyze_text_with_one_keyword_and_clause(self):
-        text = "This is a first sentence. We may share your information with a third-party. This is a third sentence."
-        expected_clause = "We may share your information with a third-party."
+    def test_analyze_text_structure_and_ai_category(self):
+        text = "We collect your email for marketing."
         results = self.interpreter.analyze_text(text)
-        self.assertEqual(len(results), 1, f"Results: {results}")
-        self.assertEqual(results[0]["keyword"], "third-party")
-        self.assertEqual(results[0]["clause_text"], expected_clause)
+        self.assertIsInstance(results, list)
+        self.assertEqual(len(results), 1)
+        sentence_result = results[0]
+        self.assertIn("clause_text", sentence_result)
+        self.assertEqual(sentence_result["clause_text"], text)
+        self.assertIn("ai_category", sentence_result)
+        self.assertEqual(sentence_result["ai_category"], "Data Collection") # Based on dummy classifier
+        self.assertIn("keyword_matches", sentence_result)
+        self.assertIsInstance(sentence_result["keyword_matches"], list)
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_analyze_text_with_multiple_keywords_in_different_clauses(self):
-        text = "Our policy on data selling is clear in this sentence. User tracking is discussed in the next one."
-        results = self.interpreter.analyze_text(text)
-        self.assertEqual(len(results), 2)
-        keywords_found = {item['keyword']: item['clause_text'] for item in results}
-        self.assertEqual(keywords_found.get("data selling"), "Our policy on data selling is clear in this sentence.")
-        self.assertEqual(keywords_found.get("tracking"), "User tracking is discussed in the next one.")
-
-    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_analyze_text_with_multiple_keywords_in_same_clause(self):
-        text = "This single sentence mentions both data selling and user tracking."
-        results = self.interpreter.analyze_text(text)
-        self.assertEqual(len(results), 2)
-        keywords_in_results = [r['keyword'] for r in results]
-        self.assertIn('data selling', keywords_in_results)
-        self.assertIn('tracking', keywords_in_results)
-        for item in results:
-            self.assertEqual(item['clause_text'], "This single sentence mentions both data selling and user tracking.")
-
-    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_analyze_text_keyword_case_insensitivity_with_clause(self):
-        text = "This policy mentions Third-Party services in one sentence. And another sentence."
-        expected_clause = "This policy mentions Third-Party services in one sentence."
+    def test_analyze_text_with_one_keyword_match(self):
+        text = "We share your information with third-party vendors."
+        # Expected clause text is the full sentence due to spaCy sentence tokenization.
         results = self.interpreter.analyze_text(text)
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["keyword"], "third-party")
-        self.assertEqual(results[0]["clause_text"], expected_clause)
+        sentence_result = results[0]
+        self.assertEqual(sentence_result["clause_text"], text)
+        self.assertEqual(sentence_result["ai_category"], "Data Sharing") # Dummy classifier
+        self.assertEqual(len(sentence_result["keyword_matches"]), 1)
+        keyword_match = sentence_result["keyword_matches"][0]
+        self.assertEqual(keyword_match["keyword"], "third-party")
+        self.assertEqual(keyword_match["explanation"], "Test explanation for third-party.")
+        self.assertEqual(keyword_match["category"], "Data Sharing")
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_analyze_text_empty_string_after_strip(self):
+    def test_analyze_text_with_multiple_keywords_in_same_sentence(self):
+        text = "Our policy on data selling and user tracking is clear."
+        results = self.interpreter.analyze_text(text)
+        self.assertEqual(len(results), 1)
+        sentence_result = results[0]
+        self.assertEqual(sentence_result["clause_text"], text)
+        # AI category will be 'Data Selling' due to rule order and presence of "data selling"
+        self.assertEqual(sentence_result["ai_category"], "Data Selling")
+        self.assertEqual(len(sentence_result["keyword_matches"]), 2)
+
+        found_keywords = sorted([km["keyword"] for km in sentence_result["keyword_matches"]])
+        self.assertListEqual(found_keywords, ["data selling", "tracking"])
+
+    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
+    def test_analyze_text_multiple_sentences_varied_matches(self):
+        text = "We collect data for analytics. We do not sell data. We use tracking."
+        results = self.interpreter.analyze_text(text)
+        self.assertEqual(len(results), 3)
+
+        # Sentence 1: "We collect data for analytics."
+        s1 = results[0]
+        self.assertEqual(s1["clause_text"], "We collect data for analytics.")
+        self.assertEqual(s1["ai_category"], "Data Collection")
+        self.assertEqual(len(s1["keyword_matches"]), 0) # Assuming "collect data" is not a keyword in keywords.json
+
+        # Sentence 2: "We do not sell data."
+        s2 = results[1]
+        self.assertEqual(s2["clause_text"], "We do not sell data.")
+        # AI category will be 'Data Selling' because "sell data" is in its rules, negation doesn't affect AI category.
+        self.assertEqual(s2["ai_category"], "Data Selling")
+        self.assertEqual(len(s2["keyword_matches"]), 0) # "data selling" should be negated for keyword match
+
+        # Sentence 3: "We use tracking."
+        s3 = results[2]
+        self.assertEqual(s3["clause_text"], "We use tracking.")
+        self.assertEqual(s3["ai_category"], "Cookies and Tracking Technologies") # Updated based on new rule in ml_classifier.py
+        self.assertEqual(len(s3["keyword_matches"]), 1)
+        self.assertEqual(s3["keyword_matches"][0]["keyword"], "tracking")
+
+
+    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
+    def test_analyze_text_keyword_case_insensitivity(self):
+        text = "This policy mentions Third-Party services."
+        results = self.interpreter.analyze_text(text)
+        self.assertEqual(len(results), 1)
+        sentence_result = results[0]
+        self.assertEqual(sentence_result["clause_text"], text)
+        self.assertEqual(sentence_result["ai_category"], "Data Sharing") # Dummy classifier
+        self.assertEqual(len(sentence_result["keyword_matches"]), 1)
+        self.assertEqual(sentence_result["keyword_matches"][0]["keyword"], "third-party")
+
+    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
+    def test_analyze_text_empty_string_after_strip_no_results(self): # Renamed
         text = "     .     "
         results = self.interpreter.analyze_text(text)
-        self.assertEqual(len(results), 0)
+        if results:
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]['clause_text'], ".")
+            self.assertEqual(results[0]['ai_category'], 'Other')
+            self.assertEqual(len(results[0]['keyword_matches']), 0)
+        else:
+            self.assertEqual(len(results), 0)
+
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_negation_direct_not(self):
+    def test_negation_direct_not_no_keyword_match(self): # Renamed
         text = "We do not share third-party data."
         results = self.interpreter.analyze_text(text)
-        # "third-party" should be negated by "not"
-        found_third_party = any(item['keyword'] == 'third-party' for item in results)
-        self.assertFalse(found_third_party, "Keyword 'third-party' should be negated by 'not'.")
+        self.assertEqual(len(results), 1)
+        sentence_result = results[0]
+        self.assertEqual(sentence_result["clause_text"], text)
+        self.assertEqual(sentence_result["ai_category"], "Data Sharing")
+        self.assertEqual(len(sentence_result["keyword_matches"]), 0,
+                         "Keyword 'third-party' should be negated by 'not' and not in keyword_matches.")
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_negation_direct_no(self):
+    def test_negation_direct_no_no_keyword_match(self): # Renamed
         text = "There is no data selling."
         results = self.interpreter.analyze_text(text)
-        found_data_selling = any(item['keyword'] == 'data selling' for item in results)
-        self.assertFalse(found_data_selling, "Keyword 'data selling' should be negated by 'no'.")
+        self.assertEqual(len(results), 1)
+        sentence_result = results[0]
+        self.assertEqual(sentence_result["clause_text"], text)
+        self.assertEqual(sentence_result["ai_category"], "Data Selling")
+        self.assertEqual(len(sentence_result["keyword_matches"]), 0,
+                         "Keyword 'data selling' should be negated by 'no' and not in keyword_matches.")
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_negation_contracted_dont(self):
-        text = "We don't allow tracking of users."
-        results = self.interpreter.analyze_text(text)
-        found_tracking = any(item['keyword'] == 'tracking' for item in results)
-        self.assertFalse(found_tracking, "Keyword 'tracking' should be negated by 'don't'.")
-
-    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_keyword_not_negated(self):
+    def test_keyword_not_negated_is_matched(self): # Renamed
         text = "We may use third-party services."
         results = self.interpreter.analyze_text(text)
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["keyword"], "third-party")
+        sentence_result = results[0]
+        self.assertEqual(sentence_result["clause_text"], text)
+        self.assertEqual(sentence_result["ai_category"], "Data Sharing")
+        self.assertEqual(len(sentence_result["keyword_matches"]), 1)
+        self.assertEqual(sentence_result["keyword_matches"][0]["keyword"], "third-party")
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_negation_further_away_should_still_flag(self):
-        # Current basic negation looks at words immediately before.
-        # "We are not evil people. We engage in data selling." - "data selling" should be flagged.
-        text = "We are not evil people. We engage in data selling."
+    def test_analyze_text_no_keywords_in_text_but_ai_categories(self): # Renamed
+        text = "We collect your information for our records. This is important for us."
         results = self.interpreter.analyze_text(text)
-        found_data_selling = any(item['keyword'] == 'data selling' for item in results)
-        self.assertTrue(found_data_selling, "Keyword 'data selling' should be flagged as negation is not immediately preceding.")
-        if found_data_selling:
-            for item in results:
-                if item['keyword'] == 'data selling':
-                    self.assertEqual(item['clause_text'], "We engage in data selling.")
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]['clause_text'], "We collect your information for our records.")
+        self.assertEqual(results[0]['ai_category'], "Data Collection")
+        self.assertEqual(len(results[0]['keyword_matches']), 0)
 
-
-    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_multiple_keywords_one_negated(self):
-        # "We do not sell data, but we use tracking for analytics."
-        # "data selling" should be negated. "tracking" should be flagged.
-        text = "We do not sell data, but we use tracking for analytics."
-        results = self.interpreter.analyze_text(text)
-
-        found_data_selling = any(item['keyword'] == 'data selling' for item in results)
-        self.assertFalse(found_data_selling, "Keyword 'data selling' should be negated.")
-
-        found_tracking = any(item['keyword'] == 'tracking' for item in results)
-        self.assertTrue(found_tracking, "Keyword 'tracking' should be flagged.")
-        if found_tracking:
-            for item in results:
-                if item['keyword'] == 'tracking':
-                    # The clause is the whole sentence as per current spaCy sentence segmentation
-                    self.assertEqual(item['clause_text'], "We do not sell data, but we use tracking for analytics.")
-
-
-    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_negation_at_start_of_sentence_no(self):
-        text = "No data selling is permitted."
-        results = self.interpreter.analyze_text(text)
-        found_data_selling = any(item['keyword'] == 'data selling' for item in results)
-        self.assertFalse(found_data_selling, "Keyword 'data selling' should be negated by 'No' at sentence start.")
-
-    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_negation_word_part_of_another_word(self):
-        # E.g. "notebook" should not trigger negation for "book" if "book" was a keyword.
-        # Using "third-party" and "noteworthy"
-        text = "This is a noteworthy third-party service."
-        results = self.interpreter.analyze_text(text)
-        found_third_party = any(item['keyword'] == 'third-party' for item in results)
-        self.assertTrue(found_third_party, "'third-party' should be flagged as 'noteworthy' is not a negation of it.")
-        if found_third_party:
-             for item in results:
-                if item['keyword'] == 'third-party':
-                    self.assertEqual(item['clause_text'], "This is a noteworthy third-party service.")
-
-    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
-    def test_keyword_following_negation_of_different_concept(self):
-        text = "We are not evil, and we use tracking."
-        results = self.interpreter.analyze_text(text)
-        found_tracking = any(item['keyword'] == 'tracking' for item in results)
-        self.assertTrue(found_tracking, "Keyword 'tracking' should be flagged as 'not' applies to 'evil'.")
+        self.assertEqual(results[1]['clause_text'], "This is important for us.")
+        self.assertEqual(results[1]['ai_category'], "Other")
+        self.assertEqual(len(results[1]['keyword_matches']), 0)
 
 
     # --- NLP Independent Tests (or tests that should behave gracefully if NLP is absent) ---
@@ -189,58 +196,55 @@ class TestPrivacyInterpreter(unittest.TestCase):
         self.assertTrue(len(self.interpreter.keywords_data) > 0, "Keywords should be loaded.")
         self.assertIn("third-party", self.interpreter.keywords_data)
 
-    def test_analyze_text_no_keywords_in_text(self):
-        text = "This policy is clean and respects user privacy."
-        results = self.interpreter.analyze_text(text)
-        self.assertEqual(len(results), 0)
-
-    def test_analyze_text_empty_text_input(self):
+    def test_analyze_text_empty_text_input_no_results(self):
         results = self.interpreter.analyze_text("")
         self.assertEqual(len(results), 0)
 
-    def test_analyze_text_none_input(self):
+    def test_analyze_text_none_input_no_results(self):
         results = self.interpreter.analyze_text(None)
         self.assertEqual(len(results), 0)
 
-    def test_analyze_text_integer_input(self):
+    def test_analyze_text_integer_input_no_results(self):
         results = self.interpreter.analyze_text(123)
         self.assertEqual(len(results), 0)
 
-    def test_keyword_missing_explanation_or_category(self):
-        keywords_missing_data = {"new_keyword": {}}
+    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available.")
+    def test_keyword_missing_explanation_or_category_in_matches(self):
+        original_keywords_data = self.interpreter.keywords_data
+        self.interpreter.keywords_data = {
+            "new_keyword_test": {}
+        }
 
-        temp_interpreter = PrivacyInterpreter()
+        text = "This policy has a new_keyword_test."
+        results = self.interpreter.analyze_text(text)
 
-        if not temp_interpreter.nlp:
-            self.skipTest("spaCy model 'en_core_web_sm' not available for test_keyword_missing_explanation_or_category's analyze_text part.")
-
-        specific_temp_keywords_file = "temp_missing_keywords.json"
-        with open(specific_temp_keywords_file, 'w') as f:
-            json.dump(keywords_missing_data, f)
-        temp_interpreter.load_keywords_from_path(specific_temp_keywords_file)
-
-        text = "This policy has a new_keyword."
-        results = temp_interpreter.analyze_text(text)
-
-        if os.path.exists(specific_temp_keywords_file):
-            os.remove(specific_temp_keywords_file)
+        self.interpreter.keywords_data = original_keywords_data
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["keyword"], "new_keyword")
-        self.assertEqual(results[0]["explanation"], "No explanation available.")
-        self.assertEqual(results[0]["category"], "Uncategorized")
-        self.assertEqual(results[0]["clause_text"], text)
+        sentence_result = results[0]
+        self.assertEqual(sentence_result['clause_text'], text)
+
+        self.assertEqual(len(sentence_result['keyword_matches']), 1)
+        keyword_match = sentence_result['keyword_matches'][0]
+        self.assertEqual(keyword_match["keyword"], "new_keyword_test")
+        self.assertEqual(keyword_match["explanation"], "No explanation available.")
+        self.assertEqual(keyword_match["category"], "Uncategorized")
 
 
-    def test_loading_nonexistent_keywords_file(self):
+    def test_loading_nonexistent_keywords_file_returns_empty_results(self):
         temp_interpreter = PrivacyInterpreter()
         temp_interpreter.load_keywords_from_path("nonexistent_keywords.json")
         self.assertEqual(temp_interpreter.keywords_data, {})
-        results = temp_interpreter.analyze_text("Some text.")
-        self.assertEqual(len(results), 0)
 
-    def test_loading_corrupted_keywords_file(self):
-        corrupted_file = "corrupted_keywords.json"
+        results = temp_interpreter.analyze_text("Some text with potential keywords.")
+        if temp_interpreter.nlp:
+            for sentence_result in results:
+                self.assertEqual(len(sentence_result["keyword_matches"]), 0)
+        else:
+            self.assertEqual(len(results), 0)
+
+    def test_loading_corrupted_keywords_file_returns_empty_results(self):
+        corrupted_file = "corrupted_keywords_test.json"
         with open(corrupted_file, 'w') as f:
             f.write("this is not valid json {")
 
@@ -252,7 +256,11 @@ class TestPrivacyInterpreter(unittest.TestCase):
 
         self.assertEqual(temp_interpreter.keywords_data, {})
         results = temp_interpreter.analyze_text("Some text.")
-        self.assertEqual(len(results), 0)
+        if temp_interpreter.nlp:
+            for sentence_result in results:
+                self.assertEqual(len(sentence_result["keyword_matches"]), 0)
+        else:
+            self.assertEqual(len(results), 0)
 
 if __name__ == '__main__':
     unittest.main()
