@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy Analyzer</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 800px; margin: auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; text-align: center; }
+        textarea { width: 95%; min-height: 200px; padding: 10px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        input[type="submit"] { display: block; width: 100%; padding: 10px; background-color: #5cb85c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+        input[type="submit"]:hover { background-color: #4cae4c; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Privacy Policy Analyzer</h1>
+        <form action="{{ url_for('analyze') }}" method="POST">
+            <label for="policy_text">Paste Privacy Policy Text:</label>
+            <textarea name="policy_text" id="policy_text" rows="15" placeholder="Enter privacy policy text here..."></textarea>
+            <input type="submit" value="Analyze Policy">
+        </form>
+    </div>
+</body>
+</html>

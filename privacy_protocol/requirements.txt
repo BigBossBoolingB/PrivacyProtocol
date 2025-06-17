@@ -1,0 +1,5 @@
+spacy>=3.0.0,<4.0.0
+flask>=2.0.0,<3.0.0
+# Add en_core_web_sm as a comment, as it's installed via spacy download
+# For a production setup, you might package the model or ensure it's pre-installed.
+# Example: en_core_web_sm (this is not a pip package)

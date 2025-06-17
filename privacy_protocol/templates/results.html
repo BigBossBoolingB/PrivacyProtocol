@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analysis Results</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 800px; margin: auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2, h3 { color: #333; }
+        h1 { text-align: center; }
+        .policy-text-display { background-color: #eee; padding: 15px; border-radius: 4px; margin-bottom: 20px; white-space: pre-wrap; font-family: monospace; max-height: 300px; overflow-y: auto; }
+        .result-item { border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 4px; background-color: #f9f9f9; }
+        .result-item h3 { margin-top: 0; color: #d9534f; }
+        .result-item p { margin-bottom: 8px; }
+        .result-item strong { color: #555; }
+        .no-results { text-align: center; color: #777; font-size: 1.1em; }
+        a.back-link { display: inline-block; margin-top: 20px; padding: 10px 15px; background-color: #5bc0de; color: white; text-decoration: none; border-radius: 4px; }
+        a.back-link:hover { background-color: #46b8da; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Analysis Results</h1>
+
+        <h2>Original Policy Text:</h2>
+        <div class="policy-text-display">
+            {{ policy_text if policy_text else "No text submitted." }}
+        </div>
+
+        <h2>Flagged Clauses:</h2>
+        {% if analysis_results %}
+            {% for item in analysis_results %}
+                <div class="result-item">
+                    <h3>Keyword Found: {{ item.keyword }}</h3>
+                    <p><strong>Category:</strong> {{ item.category }}</p>
+                    <p><strong>Clause Text:</strong> "{{ item.clause_text }}"</p>
+                    <p><strong>Explanation:</strong> {{ item.explanation }}</p>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="no-results">No concerning keywords found, the input was empty, or NLP model for clause detection is not available.</p>
+            {% if interpreter and interpreter.nlp is none %}
+                 <p class.no-results>Note: The spaCy NLP model 'en_core_web_sm' was not loaded, so clause detection capabilities are limited. Please check console messages from when the server started.</p>
+            {% endif %}
+        {% endif %}
+
+        <a href="{{ url_for('index') }}" class="back-link">&larr; Analyze Another Policy</a>
+    </div>
+</body>
+</html>
