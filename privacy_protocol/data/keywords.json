@@ -1,0 +1,22 @@
+{
+  "third-party": {
+    "explanation": "This means your data may be shared with companies other than the one you are directly interacting with. This can be for various purposes like advertising, analytics, or other services.",
+    "category": "Data Sharing"
+  },
+  "data selling": {
+    "explanation": "This clause indicates that the company might sell your personal information to other entities. This is a significant privacy concern for many users.",
+    "category": "Data Selling"
+  },
+  "tracking": {
+    "explanation": "The service may monitor your activity, either within the app or across different websites and apps. This is often used for targeted advertising or analytics.",
+    "category": "User Activity Monitoring"
+  },
+  "cookies": {
+    "explanation": "Small files stored on your device to remember your preferences, login information, or track your browsing habits. While some are essential, others can be used for extensive tracking.",
+    "category": "Tracking Technologies"
+  },
+  "anonymized data": {
+    "explanation": "Your data is modified so that it cannot be linked back to you directly. This is often used for research or statistical analysis. While generally considered privacy-preserving, the effectiveness of anonymization can vary.",
+    "category": "Data Handling"
+  }
+}
