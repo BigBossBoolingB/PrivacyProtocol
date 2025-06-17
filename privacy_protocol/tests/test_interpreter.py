@@ -63,11 +63,15 @@ class TestPrivacyInterpreter(unittest.TestCase):
         self.assertEqual(sentence_result["ai_category"], "Data Collection") # Based on dummy classifier
         self.assertIn("keyword_matches", sentence_result)
         self.assertIsInstance(sentence_result["keyword_matches"], list)
+        self.assertIn("plain_language_summary", sentence_result)
+        self.assertIsInstance(sentence_result["plain_language_summary"], str)
+        self.assertEqual(sentence_result["plain_language_summary"],
+                         self.interpreter.plain_language_translator.dummy_explanations.get("Data Collection"))
+
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
     def test_analyze_text_with_one_keyword_match(self):
         text = "We share your information with third-party vendors."
-        # Expected clause text is the full sentence due to spaCy sentence tokenization.
         results = self.interpreter.analyze_text(text)
         self.assertEqual(len(results), 1)
         sentence_result = results[0]
@@ -78,6 +82,8 @@ class TestPrivacyInterpreter(unittest.TestCase):
         self.assertEqual(keyword_match["keyword"], "third-party")
         self.assertEqual(keyword_match["explanation"], "Test explanation for third-party.")
         self.assertEqual(keyword_match["category"], "Data Sharing")
+        self.assertEqual(sentence_result["plain_language_summary"],
+                         self.interpreter.plain_language_translator.dummy_explanations.get("Data Sharing"))
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
     def test_analyze_text_with_multiple_keywords_in_same_sentence(self):
@@ -103,21 +109,23 @@ class TestPrivacyInterpreter(unittest.TestCase):
         s1 = results[0]
         self.assertEqual(s1["clause_text"], "We collect data for analytics.")
         self.assertEqual(s1["ai_category"], "Data Collection")
-        self.assertEqual(len(s1["keyword_matches"]), 0) # Assuming "collect data" is not a keyword in keywords.json
+        self.assertEqual(len(s1["keyword_matches"]), 0)
+        self.assertEqual(s1["plain_language_summary"], self.interpreter.plain_language_translator.dummy_explanations.get("Data Collection"))
 
         # Sentence 2: "We do not sell data."
         s2 = results[1]
         self.assertEqual(s2["clause_text"], "We do not sell data.")
-        # AI category will be 'Data Selling' because "sell data" is in its rules, negation doesn't affect AI category.
         self.assertEqual(s2["ai_category"], "Data Selling")
-        self.assertEqual(len(s2["keyword_matches"]), 0) # "data selling" should be negated for keyword match
+        self.assertEqual(len(s2["keyword_matches"]), 0)
+        self.assertEqual(s2["plain_language_summary"], self.interpreter.plain_language_translator.dummy_explanations.get("Data Selling"))
 
         # Sentence 3: "We use tracking."
         s3 = results[2]
         self.assertEqual(s3["clause_text"], "We use tracking.")
-        self.assertEqual(s3["ai_category"], "Cookies and Tracking Technologies") # Updated based on new rule in ml_classifier.py
+        self.assertEqual(s3["ai_category"], "Cookies and Tracking Technologies")
         self.assertEqual(len(s3["keyword_matches"]), 1)
         self.assertEqual(s3["keyword_matches"][0]["keyword"], "tracking")
+        self.assertEqual(s3["plain_language_summary"], self.interpreter.plain_language_translator.dummy_explanations.get("Cookies and Tracking Technologies"))
 
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")

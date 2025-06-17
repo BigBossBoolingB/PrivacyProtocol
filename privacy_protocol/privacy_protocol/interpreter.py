@@ -1,7 +1,8 @@
 import json
 import spacy
 import os
-from .ml_classifier import ClauseClassifier # Import ClauseClassifier
+from .ml_classifier import ClauseClassifier
+from .plain_language_translator import PlainLanguageTranslator # Import PlainLanguageTranslator
 
 class PrivacyInterpreter:
     def __init__(self):
@@ -17,7 +18,10 @@ class PrivacyInterpreter:
             print("---")
 
         self.clause_classifier = ClauseClassifier()
-        self.clause_classifier.load_model() # Prints a message for dummy model
+        self.clause_classifier.load_model()
+
+        self.plain_language_translator = PlainLanguageTranslator()
+        self.plain_language_translator.load_model() # Currently a no-op
 
     def load_keywords_from_path(self, keywords_file_path):
         try:
@@ -92,10 +96,13 @@ class PrivacyInterpreter:
                             })
                         break
 
+            summary = self.plain_language_translator.translate(sentence_text, ai_category)
+
             analyzed_sentences.append({
                 "clause_text": sentence_text,
                 "ai_category": ai_category,
-                "keyword_matches": current_keyword_matches
+                "keyword_matches": current_keyword_matches,
+                "plain_language_summary": summary
             })
 
         return analyzed_sentences
@@ -137,6 +144,7 @@ if __name__ == '__main__':
                 for sentence_analysis in analysis_results:
                     print(f"\nSentence: \"{sentence_analysis['clause_text']}\"")
                     print(f"  AI Category: {sentence_analysis['ai_category']}")
+                    print(f"  Plain Summary: {sentence_analysis['plain_language_summary']}")
                     if sentence_analysis['keyword_matches']:
                         print("  Keyword Matches:")
                         for match in sentence_analysis['keyword_matches']:

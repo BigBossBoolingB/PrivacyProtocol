@@ -11,6 +11,7 @@
         .sentence-block { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; }
         .sentence-text { font-style: italic; color: #555; margin-bottom: 10px; }
         .ai-category { font-weight: bold; color: #0056b3; margin-bottom: 10px; }
+        .plain-summary { color: #444; margin-bottom: 10px; background-color: #f0f0f0; padding: 8px; border-radius: 3px; }
         .keyword-match { margin-left: 20px; padding: 10px; border-left: 3px solid #007bff; background-color: #e7f3ff; margin-bottom: 5px; border-radius: 4px; }
         .keyword-match p { margin: 5px 0; }
         .no-results { color: #777; }
@@ -34,6 +35,7 @@
                 <div class="sentence-block">
                     <p class="sentence-text"><strong>Sentence:</strong> {{ sentence_analysis.clause_text }}</p>
                     <p class="ai-category">AI Predicted Category: {{ sentence_analysis.ai_category }}</p>
+                    <p class="plain-summary"><strong>Plain Language Summary:</strong> {{ sentence_analysis.plain_language_summary }}</p>
 
                     {% if sentence_analysis.keyword_matches %}
                         <p><strong>Keyword Matches in this sentence:</strong></p>

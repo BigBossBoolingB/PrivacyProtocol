@@ -72,12 +72,15 @@ class TestWebApp(unittest.TestCase):
         # Expecting one sentence block for this input
         self.assertIn(b'<div class="sentence-block">', response.data)
         self.assertIn(b'<p class="sentence-text"><strong>Sentence:</strong> We share your data with third-party advertising partners for tracking purposes.</p>', response.data)
-        self.assertIn(b'<p class="ai-category">AI Predicted Category: Data Sharing</p>', response.data) # Dummy AI prediction
+        self.assertIn(b'<p class="ai-category">AI Predicted Category: Data Sharing</p>', response.data)
+        # Check for plain language summary for Data Sharing
+        expected_summary_data_sharing = app.interpreter.plain_language_translator.dummy_explanations.get("Data Sharing")
+        self.assertIn(b'<p class="plain-summary"><strong>Plain Language Summary:</strong> ' + expected_summary_data_sharing.encode() + b'</p>', response.data)
 
         # Check for keyword "third-party" details
         self.assertIn(b"<strong>Keyword:</strong> third-party", response.data)
         self.assertIn(b"<strong>Original Category:</strong> Data Sharing", response.data)
-        self.assertIn(b"<strong>Explanation:</strong> This means your data may be shared", response.data) # Partial explanation
+        self.assertIn(b"<strong>Explanation:</strong> This means your data may be shared", response.data)
 
         # Check for keyword "tracking" details
         self.assertIn(b"<strong>Keyword:</strong> tracking", response.data)
@@ -88,29 +91,23 @@ class TestWebApp(unittest.TestCase):
     def test_analyze_page_with_negated_keyword_and_nlp_model(self):
         """Test /analyze with text containing a negated keyword, assuming NLP model is available."""
         sample_text = "We do not sell data ever. Our commitment is to your privacy."
+        # This sentence will be AI categorized as 'Data Selling' by the dummy classifier
+        # but will have no keyword matches for 'data selling' due to negation.
         response = self.client.post('/analyze', data={'policy_text': sample_text})
         self.assertEqual(response.status_code, 200)
 
         self.assertIn(sample_text.encode(), response.data) # Original text
 
-        # The sentence "We do not sell data ever." will be analyzed.
-        # AI category might be "Other" or something specific if "sell data" hits a rule.
-        # Keyword "data selling" should NOT be in keyword_matches for this sentence.
+        self.assertNotIn(b"<strong>Keyword:</strong> data selling", response.data) # Keyword match should not exist
 
-        # Example check: Ensure the "data selling" keyword is not listed under keyword matches.
-        # This is a bit tricky because the keyword might appear as part of AI category rule.
-        # A robust check would parse the HTML or be very specific about the keyword match section.
-        # For now, let's check that the specific "Keyword: data selling" HTML for a match is not present.
-        self.assertNotIn(b"<strong>Keyword:</strong> data selling", response.data)
-
-        # Check that the sentence "We do not sell data ever." is present
         self.assertIn(b"<p class=\"sentence-text\"><strong>Sentence:</strong> We do not sell data ever.</p>", response.data)
-        # Check its AI category (e.g., 'Other' or if 'sell data' matches a rule like 'Data Selling' for AI)
-        # This depends on how the dummy AI classifier handles "sell data".
-        # Current dummy rule for Data Selling: [r'shares?', r'discloses?', r'third-part(y|ies)', r'partners?', r'vendors?', r'service providers?', r'transfers? data']
-        # So "sell data" would likely be 'Other' by AI.
-        self.assertIn(b'<p class="ai-category">AI Predicted Category: Other</p>', response.data) # Assuming "sell data" is not a specific AI rule keyword
-        # And that there are no keyword matches reported for this sentence
+        # AI category is 'Data Selling' because negation does not affect AI rules
+        self.assertIn(b'<p class="ai-category">AI Predicted Category: Data Selling</p>', response.data)
+
+        # Check for plain language summary for Data Selling
+        expected_summary_data_selling = app.interpreter.plain_language_translator.dummy_explanations.get("Data Selling")
+        self.assertIn(b'<p class="plain-summary"><strong>Plain Language Summary:</strong> ' + expected_summary_data_selling.encode() + b'</p>', response.data)
+
         self.assertIn(b"<em>No specific keywords flagged in this sentence by the keyword scanner.</em>", response.data)
 
 
