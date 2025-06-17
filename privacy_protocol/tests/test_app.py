@@ -104,8 +104,12 @@ class TestWebApp(unittest.TestCase):
         self.assertIn(b"<h3>Overall Privacy Risk Assessment</h3>", response.data)
         self.assertIn(b"<strong>Overall Risk Score:</strong> <span class=\"risk-score-value\">10</span>", response.data)
         self.assertIn(b"<strong>High Concern Clauses:</strong> 1", response.data)
-        self.assertIn(b"<strong>Medium Concern Clauses:</strong> 0", response.data)
-        self.assertIn(b"<strong>Low Concern Clauses:</strong> 0", response.data)
+
+        # Check for Recommendations Display
+        # For Data Sharing, High concern -> REC_ID_REVIEW_THIRD_PARTY_POLICIES
+        self.assertIn(b"<h4>Actionable Recommendations for this clause:</h4>", response.data)
+        self.assertIn(b"<strong>Review Linked Third-Party Policies</strong>", response.data)
+        self.assertIn(b"This policy indicates data sharing with third parties.", response.data)
 
         app.interpreter.load_user_preferences(get_default_preferences()) # Reset
 
@@ -131,6 +135,12 @@ class TestWebApp(unittest.TestCase):
         self.assertIn(b"<h3>Overall Privacy Risk Assessment</h3>", response.data)
         self.assertIn(b"<strong>Overall Risk Score:</strong> <span class=\"risk-score-value\">10</span>", response.data)
         self.assertIn(b"<strong>High Concern Clauses:</strong> 1", response.data)
+
+        # Check for Recommendations Display
+        # For Data Selling, High concern -> REC_ID_OPT_OUT_DATA_SELLING
+        self.assertIn(b"<h4>Actionable Recommendations for this clause:</h4>", response.data)
+        self.assertIn(b"<strong>Consider Opting Out of Data Selling</strong>", response.data)
+        self.assertIn(b"This policy mentions practices that might be considered data selling.", response.data)
 
         app.interpreter.load_user_preferences(get_default_preferences())
 

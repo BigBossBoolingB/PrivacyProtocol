@@ -1,7 +1,8 @@
 import os
-from flask import Flask, render_template, request, redirect, url_for, flash # Added redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash
 from privacy_protocol.interpreter import PrivacyInterpreter
 from privacy_protocol.user_preferences import load_user_preferences, save_user_preferences, PREFERENCE_KEYS
+from privacy_protocol.recommendations_engine import RecommendationEngine # Import RecommendationEngine
 import os
 
 app = Flask(__name__)
@@ -20,6 +21,7 @@ if interpreter.nlp is None:
     print("WARNING: spaCy model not loaded. AI Category and clause analysis will be limited.")
 
 app.interpreter = interpreter # Attach for tests or other potential uses
+recommendation_engine = RecommendationEngine() # Initialize RecommendationEngine
 
 # Descriptions for preferences page
 PREFERENCE_DESCRIPTIONS = {
@@ -63,11 +65,13 @@ def analyze():
 
     analysis_results = app.interpreter.analyze_text(policy_text)
     risk_assessment = app.interpreter.calculate_risk_assessment(analysis_results)
+    # Augment analysis_results with recommendations (modifies analysis_results in-place)
+    recommendation_engine.augment_analysis_with_recommendations(analysis_results)
 
     return render_template('results.html',
                             policy_text=policy_text,
                             analysis_results=analysis_results,
-                            risk_assessment=risk_assessment, # Add this
+                            risk_assessment=risk_assessment,
                             nlp_available=(app.interpreter.nlp is not None))
 
 @app.route('/preferences', methods=['GET', 'POST'])

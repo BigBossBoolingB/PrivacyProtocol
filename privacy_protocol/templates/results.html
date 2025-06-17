@@ -35,7 +35,26 @@
         .concern-high { border-left: 5px solid red !important; background-color: #ffe0e0 !important; }
         .concern-medium { border-left: 5px solid orange !important; background-color: #fff0e0 !important; }
         .concern-low { border-left: 5px solid #77cc77 !important; background-color: #e0ffe0 !important; }
-        .concern-none { border-left: 5px solid #eee !important; } /* Default if no specific concern but still a block */
+        .concern-none { border-left: 5px solid #eee !important; }
+        .recommendations-block {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #e9f5ff; /* Light blue, distinct from other blocks */
+            border: 1px solid #cce4ff;
+            border-radius: 4px;
+        }
+        .recommendations-block h4 {
+            margin-top: 0;
+            color: #004085; /* Darker blue for heading */
+            font-size: 1.1em;
+        }
+        .recommendations-block ul {
+            padding-left: 20px;
+            margin-bottom: 0;
+        }
+        .recommendations-block li {
+            margin-bottom: 8px;
+        }
         .no-results { color: #777; }
         a { color: #007bff; text-decoration: none; }
         a:hover { text-decoration: underline; }
@@ -82,6 +101,19 @@
                         {% endfor %}
                     {% else %}
                         <p><em>No specific keywords flagged in this sentence by the keyword scanner.</em></p>
+                    {% endif %}
+
+                    {% if sentence_analysis.recommendations %}
+                        <div class="recommendations-block">
+                            <h4>Actionable Recommendations for this clause:</h4>
+                            <ul>
+                                {% for rec in sentence_analysis.recommendations %}
+                                    <li>
+                                        <strong>{{ rec.title }}</strong>: {{ rec.text }}
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
                     {% endif %}
                 </div>
             {% endfor %}
