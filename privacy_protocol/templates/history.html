@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ page_title if page_title else "Analysis History" }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 900px; margin: auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; text-align: center; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f0f0f0; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .no-history { text-align: center; color: #777; margin-top: 20px; }
+        .nav-link { display: block; text-align: center; margin-top: 30px; font-size: 1.1em; }
+         .flash-message { padding: 10px; margin-bottom: 15px; border-radius: 4px; }
+        .flash-error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ page_title if page_title else "Analysis History" }}</h1>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              {% if category == 'error' %}
+              <div class="flash-message flash-{{ category }}">{{ message }}</div>
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        {% if policies %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Analysis ID (Timestamp)</th>
+                        <th>Analyzed On (UTC)</th>
+                        <th>Source / Name</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in policies %}
+                        <tr>
+                            <td>{{ item.identifier }}</td>
+                            <td>{{ item.timestamp[:19].replace('T', ' ') if item.timestamp else 'N/A' }}</td>
+                            <td>{{ item.source_url if item.source_url else 'N/A' }}</td>
+                            <td>
+                                <a href="{{ url_for('view_historical_analysis', policy_identifier=item.identifier) }}">View Details</a>
+                                {# Future: | <a href="#">Compare</a> #}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="no-history">No policy analyses found in history.</p>
+        {% endif %}
+        <p class="nav-link"><a href="{{ url_for('index') }}">Back to Main Analyzer</a></p>
+    </div>
+</body>
+</html>

@@ -1,12 +1,19 @@
 import os
 from flask import Flask, render_template, request, redirect, url_for, flash
-from flask import Flask, render_template, request, redirect, url_for, flash
+# Removed duplicate Flask import
 from privacy_protocol.interpreter import PrivacyInterpreter
 from privacy_protocol.user_preferences import load_user_preferences, save_user_preferences, PREFERENCE_KEYS
 from privacy_protocol.recommendations_engine import RecommendationEngine
 from privacy_protocol.llm_services import ACTIVE_LLM_PROVIDER_ENV_VAR, DEFAULT_LLM_PROVIDER, PROVIDER_GEMINI, PROVIDER_OPENAI, PROVIDER_ANTHROPIC, PROVIDER_AZURE_OPENAI
-from privacy_protocol.policy_history_manager import save_policy_analysis, generate_policy_identifier # Added
-import os
+from privacy_protocol.policy_history_manager import (
+    save_policy_analysis,
+    generate_policy_identifier,
+    get_latest_policy_analysis, # Added
+    list_analyzed_policies, # Ensured present for history_list route
+    get_policy_analysis     # Ensured present for view_historical_analysis route
+)
+import os # Removed duplicate os import
+import difflib # Added
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24) # Needed for flash messages
@@ -81,10 +88,29 @@ def analyze():
     # Augment analysis_results with recommendations (modifies analysis_results in-place)
     recommendation_engine.augment_analysis_with_recommendations(analysis_results)
 
-    # Save the analysis to history
-    if policy_text.strip(): # Only save if there was actual text
+    diff_html = None
+    latest_saved_analysis = get_latest_policy_analysis()
+
+    if latest_saved_analysis:
+        previous_analysis_text = latest_saved_analysis.get('full_policy_text')
+        if previous_analysis_text and policy_text.strip() != previous_analysis_text.strip():
+            prev_lines = previous_analysis_text.splitlines(keepends=True)
+            current_lines = policy_text.splitlines(keepends=True)
+            html_diff_maker = difflib.HtmlDiff(tabsize=4, wrapcolumn=70)
+            diff_html = html_diff_maker.make_table(
+                prev_lines, current_lines,
+                fromdesc='Previous Version (from History)',
+                todesc='Current Text Submitted'
+            )
+        elif previous_analysis_text and policy_text.strip() == previous_analysis_text.strip():
+            diff_html = "<p>No textual changes detected compared to the most recent analysis in history.</p>"
+    else:
+        diff_html = "<p>No previous analysis found in history to compare against.</p>"
+
+    # Save the current analysis to history (after diffing)
+    if policy_text.strip():
         policy_id = generate_policy_identifier()
-        source_description = "Pasted Text Input" # Placeholder for now
+        source_description = "Pasted Text Input"
         save_policy_analysis(
             identifier=policy_id,
             policy_text=policy_text,
@@ -92,13 +118,43 @@ def analyze():
             risk_assessment=risk_assessment,
             source_url=source_description
         )
-        # Note: No user-facing feedback for save success/failure in this step
 
     return render_template('results.html',
                             policy_text=policy_text,
                             analysis_results=analysis_results,
                             risk_assessment=risk_assessment,
-                            nlp_available=(app.interpreter.nlp is not None))
+                            diff_html=diff_html, # Pass the diff HTML
+                            nlp_available=(app.interpreter.nlp is not None),
+                            page_title="Live Analysis Results") # Keep existing dynamic title logic if any
+
+# Route for listing historical analyses
+@app.route('/history', endpoint='history_list')
+def history_list_route_function():
+    policies = list_analyzed_policies()
+    return render_template('history.html', policies=policies, page_title="Analysis History")
+
+@app.route('/history/view/<policy_identifier>')
+def view_historical_analysis(policy_identifier):
+    stored_analysis_data = get_policy_analysis(policy_identifier) # Ensure this is imported
+    if stored_analysis_data:
+        current_nlp_available_status = app.interpreter.nlp is not None
+
+        return render_template(
+            'results.html',
+            policy_text=stored_analysis_data.get('full_policy_text', ''),
+            analysis_results=stored_analysis_data.get('analysis_results', []),
+            risk_assessment=stored_analysis_data.get('risk_assessment', {}),
+            is_historical_view=True,
+            page_title=f"Stored Analysis: {stored_analysis_data.get('policy_identifier', 'N/A')} ({stored_analysis_data.get('analysis_timestamp', 'N/A')[:19].replace('T', ' ')})",
+            diff_html=None,
+            nlp_available=current_nlp_available_status,
+            # For the banner in results.html, if using the alternative approach
+            analysis_timestamp=stored_analysis_data.get('analysis_timestamp'),
+            source_url=stored_analysis_data.get('source_url')
+        )
+    else:
+        flash(f'Could not find stored analysis with ID: {policy_identifier}', 'error')
+        return redirect(url_for('history_list'))
 
 @app.route('/preferences', methods=['GET', 'POST'])
 def preferences():

@@ -23,6 +23,25 @@
             font-weight: bold;
             font-size: 1.2em;
         }
+        .diff-section {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #fdf5e6; /* A light beige or similar for diffs */
+            border: 1px solid #faf0dd;
+            border-radius: 4px;
+        }
+        .diff-section h2 {
+            margin-top: 0;
+            color: #5c3c00;
+        }
+        /* difflib's HtmlDiff table has its own styles, but you can override them here if needed */
+        .diff-section table { width: 100%; border-collapse: collapse; }
+        .diff-section th, .diff-section td { border: 1px solid #ccc; padding: 5px; text-align: left; vertical-align: top; font-family: monospace; }
+        .diff-section .diff_header { background-color: #e0e0e0; }
+        .diff-section .diff_next { background-color: #c0c0c0; }
+        .diff-section .diff_add { background-color: #ddffdd; }
+        .diff-section .diff_chg { background-color: #ffffcc; }
+        .diff-section .diff_sub { background-color: #ffdddd; }
         .policy-text { background-color: #e9e9e9; padding: 15px; border-radius: 4px; margin-bottom: 20px; white-space: pre-wrap; font-family: monospace; max-height: 200px; overflow-y: auto; border: 1px solid #ddd;}
         .sentence-block { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; }
         .sentence-text { font-style: italic; color: #555; margin-bottom: 10px; }
@@ -65,7 +84,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Analysis Results</h1>
+        <h1>{{ page_title if page_title else "Analysis Results" }}</h1>
 
         {% if risk_assessment %}
         <div class="risk-summary-box">
@@ -75,6 +94,13 @@
             <p><strong>Medium Concern Clauses:</strong> {{ risk_assessment.medium_concern_count }}</p>
             <p><strong>Low Concern Clauses:</strong> {{ risk_assessment.low_concern_count }}</p>
             <p><strong>Uncategorized/No Concern Clauses:</strong> {{ risk_assessment.none_concern_count }}</p> <!-- Optional to display -->
+        </div>
+        {% endif %}
+
+        {% if diff_html %}
+        <div class="diff-section">
+            <h2>Changes Since Last Analysis</h2>
+            <div>{{ diff_html | safe }}</div>
         </div>
         {% endif %}
 
@@ -125,7 +151,11 @@
             <p class="note"><strong>Note:</strong> The spaCy NLP model (en_core_web_sm) was not available when the server started. Sentence segmentation and AI categorization quality might be affected or disabled. Keyword spotting might still work based on simpler rules if implemented as a fallback in the interpreter.</p>
         {% endif %}
 
-        <a href="{{ url_for('index') }}" class="back-link">&larr; Analyze another policy</a>
+        {% if is_historical_view %}
+            <a href="{{ url_for('history_list') }}" class="back-link">&larr; Back to History List</a>
+        {% else %}
+            <a href="{{ url_for('index') }}" class="back-link">&larr; Analyze Another Policy</a>
+        {% endif %}
     </div>
 </body>
 </html>

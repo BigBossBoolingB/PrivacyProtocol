@@ -13,6 +13,14 @@ Privacy Protocol is an application designed to analyze privacy policy text. It i
 -   **Personalized Risk Assessment:** Calculates a risk score and highlights clauses of high, medium, or low concern based on user preferences.
 -   **Actionable Recommendations:** Provides suggestions based on the analysis and user concern levels.
 -   **Web Interface:** User-friendly interface for pasting text, viewing analysis, and managing preferences.
+   - **Policy History & Change Tracking:**
+       *   **Automatic History:** Every policy text you analyze is automatically saved along with its detailed analysis results (AI categorization, keyword flags, plain language summaries, risk assessment, and recommendations).
+       *   **View Past Analyses:** Navigate to the `/history` page in the web application to see a list of all your saved analyses, sorted by date. From there, you can click to view the full results of any specific past analysis just as it was when originally processed.
+       *   **Basic Change Detection:** When you analyze a new policy text, it is automatically compared against the most recent version stored in your history.
+           *   If changes are detected, a visual summary highlighting the differences (additions and deletions) will be displayed on the analysis results page.
+           *   If the new text is identical to the last saved version, a "No textual changes detected" message will appear.
+           *   If it's the first time a policy is analyzed (or if history is empty), it will indicate that no previous version was found for comparison.
+       *   **Storage:** Policy history is stored locally in JSON files within the `privacy_protocol/policy_history/` directory in your application folder.
 
 ## Prerequisites
 
@@ -97,6 +105,7 @@ Privacy Protocol is an application designed to analyze privacy policy text. It i
     Alternatively, for development, you can run `python app.py` directly from the project root directory, as `app.py` includes `app.run(debug=True)`.
 
 4.  Open your web browser and navigate to `http://0.0.0.0:5000/`.
+5.  Access the `/history` page to review previously analyzed policies.
 
 ## Running Tests
 
@@ -126,6 +135,7 @@ This command should be run from the project root directory (`privacy_protocol/`)
 - `templates/`: HTML templates for the web interface.
 - `tests/`: Unit tests for the application. All test files are located here directly.
 - `user_data/`: Stores user preferences (e.g., `current_user_preferences.json`).
+- `policy_history/`: Stores saved policy analyses as JSON files.
 - `requirements.txt`: Python dependencies.
 - `README.md`: This file.
 - `ML_MODEL_README.md`: Details on AI model development.
