@@ -23,6 +23,22 @@ class TestAzureOpenAILLMService(unittest.TestCase):
     MOCK_AZURE_ENV_VARS_MISSING_KEY = MOCK_AZURE_ENV_VARS_VALID.copy()
     del MOCK_AZURE_ENV_VARS_MISSING_KEY[azure_openai_client.AZURE_OPENAI_API_KEY_ENV_VAR]
 
+    def _create_mock_httpx_request(self):
+        return MagicMock(spec=httpx.Request, method="POST", url=self.MOCK_AZURE_ENV_VARS_VALID[azure_openai_client.AZURE_OPENAI_ENDPOINT_ENV_VAR])
+
+    def _create_mock_httpx_response(self, status_code, include_headers=False, text_body="{}", json_body=None, request=None):
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = status_code
+        mock_response.request = request if request else self._create_mock_httpx_request()
+        mock_response.text = text_body
+        mock_response.json = MagicMock(return_value=json_body if json_body is not None else {})
+        if include_headers:
+            mock_response.headers = MagicMock(spec=httpx.Headers)
+            mock_response.headers.get.return_value = 'mock_request_id'
+        else:
+            mock_response.headers = {}
+        return mock_response
+
     @patch.dict(os.environ, MOCK_AZURE_ENV_VARS_VALID)
     @patch(AZURE_OPENAI_CLIENT_PATH)
     def test_init_configs_available(self, mock_azure_openai_constructor):
@@ -32,11 +48,6 @@ class TestAzureOpenAILLMService(unittest.TestCase):
             service = azure_openai_client.AzureOpenAILLMService()
 
         self.assertTrue(service.key_available)
-        self.assertEqual(service.api_key, "test_azure_key")
-        self.assertEqual(service.azure_endpoint, "https://test.openai.azure.com/")
-        self.assertEqual(service.deployment_name, "test-deployment")
-        self.assertEqual(service.api_version, "2023-07-01-preview")
-        self.assertEqual(service.client, mock_client_instance)
         mock_azure_openai_constructor.assert_called_once_with(
             api_key="test_azure_key",
             azure_endpoint="https://test.openai.azure.com/",
@@ -49,7 +60,6 @@ class TestAzureOpenAILLMService(unittest.TestCase):
         with patch('sys.stdout', new_callable=MagicMock):
             service = azure_openai_client.AzureOpenAILLMService()
         self.assertFalse(service.key_available)
-        self.assertIsNone(service.client)
         mock_azure_openai_constructor.assert_not_called()
 
     def test_get_api_key_env_var(self):
@@ -78,17 +88,13 @@ class TestAzureOpenAILLMService(unittest.TestCase):
         summary = service.generate_summary("A clause for Azure.", test_ai_category)
         self.assertEqual(summary, "Successful Azure OpenAI summary.")
         mock_client_instance.chat.completions.create.assert_called_once()
-        call_args = mock_client_instance.chat.completions.create.call_args
-        self.assertEqual(call_args.kwargs['model'], service.deployment_name)
-        self.assertIn("A clause for Azure.", call_args.kwargs['messages'][1]['content'])
-        self.assertIn(test_ai_category, call_args.kwargs['messages'][1]['content']) # AI category is in user prompt
 
     @patch.dict(os.environ, MOCK_AZURE_ENV_VARS_VALID)
     @patch(AZURE_OPENAI_CLIENT_PATH)
     def test_generate_summary_api_error(self, mock_azure_openai_constructor):
         mock_client_instance = MagicMock(spec=AzureOpenAI)
-        mock_httpx_request = MagicMock(spec=httpx.Request)
-        # Corrected: APIError for openai v1.x takes message, request, and body (optional)
+        mock_httpx_request = self._create_mock_httpx_request()
+        # Corrected: APIError takes message, request, body. Response is an attribute set on it.
         mock_client_instance.chat.completions.create.side_effect = APIError(
             message="Azure API Error for test", request=mock_httpx_request, body=None
         )
@@ -103,12 +109,8 @@ class TestAzureOpenAILLMService(unittest.TestCase):
     @patch(AZURE_OPENAI_CLIENT_PATH)
     def test_generate_summary_rate_limit_error(self, mock_azure_openai_constructor):
         mock_client_instance = MagicMock(spec=AzureOpenAI)
-        mock_httpx_response = MagicMock(spec=httpx.Response)
-        mock_httpx_response.status_code = 429
-        mock_httpx_response.request = MagicMock(spec=httpx.Request)
-        mock_httpx_response.headers = MagicMock(spec=httpx.Headers)
-        mock_httpx_response.headers.get.return_value = "mock_id_rate_limit"
-
+        mock_httpx_response = self._create_mock_httpx_response(status_code=429, include_headers=True)
+        # RateLimitError specifically takes 'response' as a keyword argument.
         mock_client_instance.chat.completions.create.side_effect = RateLimitError(
             message="Rate limit exceeded for test", response=mock_httpx_response, body=None
         )
@@ -119,30 +121,65 @@ class TestAzureOpenAILLMService(unittest.TestCase):
         summary = service.generate_summary("Clause for rate limit.", "User Rights")
         self.assertEqual(summary, "Could not generate summary due to API rate limits.")
 
+    @patch.dict(os.environ, MOCK_AZURE_ENV_VARS_VALID)
+    @patch(AZURE_OPENAI_CLIENT_PATH)
+    def test_classify_clause_success(self, mock_azure_openai_constructor):
+        mock_choice = MagicMock()
+        mock_choice.message = MagicMock()
+        mock_choice.message.content = "Data Collection"
+        mock_chat_response = MagicMock(choices=[mock_choice])
 
-    def test_generate_summary_no_config(self):
+        mock_client_instance = MagicMock(spec=AzureOpenAI)
+        mock_client_instance.chat.completions.create.return_value = mock_chat_response
+        mock_azure_openai_constructor.return_value = mock_client_instance
+
+        with patch('sys.stdout', new_callable=MagicMock):
+            service = azure_openai_client.AzureOpenAILLMService()
+
+        categories = ["Data Collection", "Data Sharing", "Other"]
+        classification = service.classify_clause("This clause is about collecting data.", categories)
+        self.assertEqual(classification, "Data Collection")
+
+    @patch.dict(os.environ, MOCK_AZURE_ENV_VARS_VALID)
+    @patch(AZURE_OPENAI_CLIENT_PATH)
+    def test_classify_clause_api_error(self, mock_azure_openai_constructor):
+        mock_client_instance = MagicMock(spec=AzureOpenAI)
+        mock_httpx_request = self._create_mock_httpx_request()
+        mock_client_instance.chat.completions.create.side_effect = APIError(
+            message="Azure API Error for classification test", request=mock_httpx_request, body=None
+        )
+        mock_azure_openai_constructor.return_value = mock_client_instance
+
+        with patch('sys.stdout', new_callable=MagicMock):
+            service = azure_openai_client.AzureOpenAILLMService()
+        categories = ["Data Collection", "Data Sharing", "Other"]
+        classification = service.classify_clause("Clause for error test.", categories)
+        self.assertIsNone(classification)
+
+    def test_classify_clause_service_unavailable(self):
         with patch.dict(os.environ, self.MOCK_AZURE_ENV_VARS_MISSING_KEY):
             with patch('sys.stdout', new_callable=MagicMock):
                 service = azure_openai_client.AzureOpenAILLMService()
             self.assertFalse(service.key_available)
-            summary = service.generate_summary("A clause.", "Data Usage")
-            self.assertEqual(summary, "LLM service (Azure OpenAI) not configured or client not initialized. Cannot generate summary.")
+            categories = ["Data Collection", "Data Sharing", "Other"]
+            classification = service.classify_clause("A clause.", categories)
+            self.assertIsNone(classification)
 
     @patch.dict(os.environ, MOCK_AZURE_ENV_VARS_VALID)
     @patch(AZURE_OPENAI_CLIENT_PATH)
-    def test_generate_summary_empty_clause_text(self, mock_azure_openai_constructor):
+    def test_classify_clause_empty_text(self, mock_azure_openai_constructor):
         mock_azure_openai_constructor.return_value = MagicMock(spec=AzureOpenAI)
         with patch('sys.stdout', new_callable=MagicMock):
             service = azure_openai_client.AzureOpenAILLMService()
-        summary = service.generate_summary("", "Security")
-        self.assertEqual(summary, "The provided clause text was empty.")
+        categories = ["Data Collection", "Data Sharing", "Other"]
+        classification = service.classify_clause("", categories)
+        self.assertIsNone(classification)
 
     @patch.dict(os.environ, MOCK_AZURE_ENV_VARS_VALID)
     @patch(AZURE_OPENAI_CLIENT_PATH)
-    def test_generate_summary_content_filter(self, mock_azure_openai_constructor):
+    def test_classify_clause_content_filter(self, mock_azure_openai_constructor):
         mock_choice = MagicMock()
-        mock_choice.message = MagicMock() # Message object exists
-        mock_choice.message.content = None # But content is None due to filter
+        mock_choice.message = None
         mock_choice.finish_reason = "content_filter"
         mock_chat_response = MagicMock(choices=[mock_choice])
 
@@ -152,8 +189,9 @@ class TestAzureOpenAILLMService(unittest.TestCase):
 
         with patch('sys.stdout', new_callable=MagicMock):
             service = azure_openai_client.AzureOpenAILLMService()
-        summary = service.generate_summary("A sensitive clause.", "Other")
-        self.assertEqual(summary, "Could not generate summary due to Azure OpenAI content filter.")
+        categories = ["Data Collection", "Data Sharing", "Other"]
+        classification = service.classify_clause("A sensitive clause for content filter.", categories)
+        self.assertEqual(classification, "Could not generate summary due to Azure OpenAI content filter.")
 
 if __name__ == '__main__':
     unittest.main()

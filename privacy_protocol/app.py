@@ -4,7 +4,8 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 from privacy_protocol.interpreter import PrivacyInterpreter
 from privacy_protocol.user_preferences import load_user_preferences, save_user_preferences, PREFERENCE_KEYS
 from privacy_protocol.recommendations_engine import RecommendationEngine
-from privacy_protocol.llm_services import ACTIVE_LLM_PROVIDER_ENV_VAR, DEFAULT_LLM_PROVIDER, PROVIDER_GEMINI, PROVIDER_OPENAI # Import LLM config vars
+from privacy_protocol.llm_services import ACTIVE_LLM_PROVIDER_ENV_VAR, DEFAULT_LLM_PROVIDER, PROVIDER_GEMINI, PROVIDER_OPENAI, PROVIDER_ANTHROPIC, PROVIDER_AZURE_OPENAI
+from privacy_protocol.policy_history_manager import save_policy_analysis, generate_policy_identifier # Added
 import os
 
 app = Flask(__name__)
@@ -79,6 +80,19 @@ def analyze():
     risk_assessment = app.interpreter.calculate_risk_assessment(analysis_results)
     # Augment analysis_results with recommendations (modifies analysis_results in-place)
     recommendation_engine.augment_analysis_with_recommendations(analysis_results)
+
+    # Save the analysis to history
+    if policy_text.strip(): # Only save if there was actual text
+        policy_id = generate_policy_identifier()
+        source_description = "Pasted Text Input" # Placeholder for now
+        save_policy_analysis(
+            identifier=policy_id,
+            policy_text=policy_text,
+            analysis_results=analysis_results,
+            risk_assessment=risk_assessment,
+            source_url=source_description
+        )
+        # Note: No user-facing feedback for save success/failure in this step
 
     return render_template('results.html',
                             policy_text=policy_text,

@@ -88,40 +88,97 @@ class GeminiLLMService(LLMService):
             print(f"An unexpected error occurred with GeminiLLMService: {e}")
             return f"An unexpected error occurred: {type(e).__name__}"
 
+    def classify_clause(self, clause_text: str, available_categories: list[str]) -> str | None:
+        if not self.api_key_is_present or not self.model:
+            # print("Error: GeminiLLMService not configured. Cannot classify clause.")
+            # Return None if service not ready, let caller decide on 'Other'
+            return None
+
+        if not clause_text or not clause_text.strip():
+            # print("Warning: Clause text is empty. Cannot classify.")
+            return None # Or 'Other' if 'Other' in available_categories and desired behavior
+
+        try:
+            # Ensure 'Other' is an option if it's a fallback for the LLM too.
+            # For this prompt, we want the LLM to strictly choose from the list.
+            category_list_str = ", ".join([f"'{cat}'" for cat in available_categories]) # Enclose in quotes for LLM
+            prompt = (
+                f"Your task is to classify the following privacy policy clause into exactly one of the following categories. "
+                f"Respond with only the chosen category name from this list, and nothing else. "
+                f"Do not add any explanatory text before or after the category name.\n\n"
+                f"Available Categories: {category_list_str}\n\n"
+                f"Privacy Policy Clause to Classify:\n"
+                f"\"{clause_text}\"\n\n"
+                f"Category:"
+            )
+
+            generation_config = genai.types.GenerationConfig(
+                candidate_count=1,
+                temperature=0.1 # Lower temperature for more deterministic classification
+            )
+
+            response = self.model.generate_content(prompt, generation_config=generation_config)
+
+            if response.parts:
+                raw_response_text = ""
+                if hasattr(response, 'text') and response.text:
+                    raw_response_text = response.text.strip()
+                elif response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                    raw_response_text = response.candidates[0].content.parts[0].text.strip()
+
+                if raw_response_text:
+                    # Attempt to find an exact match (case-insensitive) from available_categories
+                    for cat in available_categories:
+                        # Remove potential quotes from LLM output if it echoes like "'Category Name'"
+                        cleaned_response = raw_response_text.strip("'\"")
+                        if cleaned_response.lower() == cat.lower():
+                            return cat # Return the exact category string from our list
+
+                    print(f"Gemini classification response ('{raw_response_text}') not an exact match in available_categories. Trying substring search.")
+                    # Fallback: try substring matching if exact failed (less precise)
+                    for cat in available_categories:
+                        if cat.lower() in raw_response_text.lower():
+                            print(f"Found substring match: '{cat}' in '{raw_response_text}'")
+                            return cat
+
+                    print(f"Gemini classification response ('{raw_response_text}') did not map to any available category.")
+                    return None # Or 'Other' if that's a desired fallback for unmappable responses
+
+            if response.prompt_feedback and response.prompt_feedback.block_reason:
+                print(f"Warning: Prompt blocked by Gemini API for classification due to: {response.prompt_feedback.block_reason}")
+                return None # Or specific error string like "Classification failed due to safety settings"
+
+            print("Warning: Gemini API returned no content parts for classification.")
+            return None
+
+        except google_exceptions.GoogleAPIError as e:
+            print(f"Error calling Gemini API for classification: {e}")
+            return None
+        except Exception as e:
+            print(f"An unexpected error occurred during Gemini classification: {e}")
+            return None
+
 
 if __name__ == '__main__':
     print("GeminiLLMService Direct Test Script")
 
-    service = GeminiLLMService() # Initialization messages will be printed here
+    service = GeminiLLMService()
 
+
+    # Example for __main__ testing of classify_clause
     if service.api_key_is_present and service.model:
-        print("GeminiLLMService appears to be configured. Proceeding with test calls.")
-        sample_clause = "We may share your personal information, including your browsing history and purchase records, with our advertising partners to display targeted advertisements to you on other websites."
-        sample_category = "Data Sharing"
-        print(f"\nTesting summary generation for category '{sample_category}':")
-        print(f"Clause: {sample_clause}")
-        summary = service.generate_summary(sample_clause, sample_category)
-        if summary:
-            print(f"\nGemini Summary: {summary}")
-        else:
-            print("\nFailed to get summary from Gemini (or it returned None).")
-
-        print("\nTesting with empty clause:")
-        summary_empty = service.generate_summary("", "Data Collection")
-        print(f"Summary for empty clause: {summary_empty}")
-
-        # Test blocked prompt scenario (example, might not actually trigger blocking without a real harmful prompt)
-        # For a real test of blocking, you'd need a prompt that reliably gets blocked.
-        # This is more to show how the error message might look.
-        # A mock test is better for this.
-        blocked_clause = "This is some text that might be sensitive or harmful if it were actually harmful."
-        blocked_category = "Other"
-        print(f"\nTesting potentially blocked prompt for category '{blocked_category}':")
-        print(f"Clause: {blocked_clause}")
-        summary_blocked = service.generate_summary(blocked_clause, blocked_category)
-        if summary_blocked:
-            print(f"\nGemini Summary (Blocked Test): {summary_blocked}")
-        else:
-            print("\nFailed to get summary for potentially blocked prompt, or it was indeed blocked (or returned None).")
+        print("\n--- Testing classify_clause ---")
+        test_categories = ["Data Collection", "Data Sharing", "Other"]
+        clauses_to_test = [
+            ("We collect your name and email.", "Data Collection"),
+            ("Information is shared with partners.", "Data Sharing"),
+            ("This is a neutral statement.", "Other")
+        ]
+        for clause, expected_cat in clauses_to_test:
+            print(f"\nClassifying clause: \"{clause}\"")
+            predicted_cat = service.classify_clause(clause, test_categories)
+            print(f"  Expected: {expected_cat}, Got: {predicted_cat}")
+            if predicted_cat != expected_cat:
+                print(f"  Classification MISMATCH for: {clause}")
     else:
         print("GeminiLLMService not fully configured (API Key likely missing or model load failed). Skipping live API test calls in __main__.")

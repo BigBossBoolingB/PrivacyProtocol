@@ -91,28 +91,101 @@ class OpenAILLMService(LLMService):
             print(f"An unexpected error occurred with OpenAI API client: {e}")
             return "An unexpected error occurred with OpenAI client."
 
+    def classify_clause(self, clause_text: str, available_categories: list[str]) -> str | None:
+        if not self.key_available or not self.client:
+            return None # Service not configured
+
+        if not clause_text or not clause_text.strip():
+            return None # Or 'Other' if in available_categories and desired
+
+        try:
+            category_list_str = ", ".join([f"'{cat}'" for cat in available_categories])
+            system_prompt = (
+                f"You are an expert text classifier. Your task is to classify the provided privacy policy clause "
+                f"into exactly one of the following categories. Respond with only the category name from this list, "
+                f"and nothing else. Do not add any explanatory text before or after the category name.\n\n"
+                f"Available Categories: {category_list_str}"
+            )
+            user_prompt = (
+                f"Privacy Policy Clause to Classify:\n"
+                f"\"{clause_text}\"\n\n"
+                f"Category:"
+            )
+
+            chat_completion = self.client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                model=DEFAULT_OPENAI_MODEL, # Using the class default model
+                temperature=0.1, # For more deterministic classification
+                max_tokens=50 # Max length for a category name is usually short
+            )
+
+            if chat_completion.choices and chat_completion.choices[0].message and chat_completion.choices[0].message.content:
+                raw_response_text = chat_completion.choices[0].message.content.strip()
+
+                if raw_response_text:
+                    # Attempt to find an exact match (case-insensitive) from available_categories
+                    cleaned_response = raw_response_text.strip("'\"") # Remove potential quotes
+                    for cat in available_categories:
+                        if cleaned_response.lower() == cat.lower():
+                            return cat
+
+                    print(f"OpenAI classification response ('{raw_response_text}') not an exact match. Trying substring.")
+                    for cat in available_categories:
+                        if cat.lower() in raw_response_text.lower():
+                            return cat
+
+                    print(f"OpenAI classification response ('{raw_response_text}') did not map to any available category.")
+                    return None # Or 'Other' if applicable and desired
+
+            # Handle content filter or other issues if no content
+            if chat_completion.choices and chat_completion.choices[0].finish_reason == 'content_filter':
+                 print(f"OpenAI API content filter triggered for classification: {clause_text[:100]}...")
+                 return None # Or specific message: "Classification failed due to content filter."
+
+            print(f"OpenAI API returned no usable content for classification: {clause_text[:100]}...")
+            return None
+
+        except RateLimitError as e:
+            print(f"OpenAI API rate limit exceeded during classification: {e}")
+            return None
+        except APIError as e:
+            print(f"OpenAI API error during classification: {e}")
+            return None
+        except Exception as e:
+            print(f"An unexpected error occurred with OpenAI client during classification: {e}")
+            return None
+
 if __name__ == '__main__':
-    from unittest.mock import patch, MagicMock # For __main__ without prints from class
+    from unittest.mock import patch, MagicMock
     print("OpenAI LLM Service Client Script")
 
-    # Temporarily suppress class-level prints for cleaner __main__ output unless VERBOSE_LOGGING is set
-    # The is_api_key_available print is valuable so we keep that one unless VERBOSE_LOGGING is explicitly false.
+    service = OpenAILLMService()
 
-    # For the __main__ block, we want to see the "API Key not found" message if it's the case.
-    # So, we don't globally patch sys.stdout here for the class instantiation.
-    openai_service = OpenAILLMService()
-
-    if openai_service.key_available and openai_service.client:
-        print("OpenAI API Key found and client initialized (or mocked).")
-        sample_clause = "We may share your personal information... with our advertising partners..."
-        sample_category = "Data Sharing"
-        print(f"\nTesting summary for category '{sample_category}':")
-        print(f"Clause: {sample_clause}")
-        summary = openai_service.generate_summary(sample_clause, sample_category)
-        if summary:
-            print(f"\nOpenAI Summary: {summary}")
-        else:
-            print("\nFailed to get summary from OpenAI (returned None or specific error string).")
+    _key_available, _ = service.is_api_key_available()
+    if _key_available:
+        print("OpenAI API Key found. Client should be initialized.")
     else:
-        # This message will appear if the key isn't set in the environment for this direct run
-        print("OpenAI API Key not found or client failed to initialize in __main__. Skipping live API test.")
+        print("OpenAI API Key not found. Client likely not initialized.")
+
+    if service.key_available and service.client:
+        print("Attempting a sample API call for summary...")
+        # ... (summary test code from before can remain or be simplified) ...
+        print("\n--- Testing classify_clause with OpenAI ---")
+        test_categories = ["Data Collection", "Data Sharing", "Security", "Other"]
+        clauses_to_test = [
+            ("We collect your name, email, and IP address.", "Data Collection"),
+            ("Your information might be shared with our advertising partners.", "Data Sharing"),
+            ("This is a very generic statement that does not fit well.", "Other")
+        ]
+        for clause, expected_cat in clauses_to_test:
+            print(f"\nClassifying clause: \"{clause}\"")
+            # In __main__, actual API calls are made if key is present
+            predicted_cat = service.classify_clause(clause, test_categories)
+            print(f"  Expected: {expected_cat}, Got: {predicted_cat}")
+            if predicted_cat != expected_cat:
+                 print(f"  Classification MISMATCH for: {clause}")
+    else:
+        print("Skipping live API test in __main__ because API key is not available or client failed to initialize.")

@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import List, Tuple, Optional # For type hints
 
 class LLMService(ABC):
     """
@@ -43,6 +44,23 @@ class LLMService(ABC):
             or a summary cannot be generated. Specific error messages that are informative
             for the user (e.g., content blocked by safety settings) might also be returned
             as strings by the concrete implementation.
+        """
+        pass
+
+    @abstractmethod
+    def classify_clause(self, clause_text: str, available_categories: List[str]) -> Optional[str]:
+        """
+        Classifies a given policy clause text into one of the available categories.
+
+        Args:
+            clause_text: The text of the privacy policy clause.
+            available_categories: A list of valid category strings for the LLM to choose from.
+
+        Returns:
+            A string representing one of the `available_categories` that best fits
+            the clause_text, or None if classification fails or no suitable category
+            is found. The implementing service might also return a default category
+            like 'Other' if it's part of `available_categories` and seems appropriate.
         """
         pass
 

@@ -17,10 +17,17 @@ class AnthropicLLMService(LLMService):
             self.key_available = True
             try:
                 self.client = Anthropic(api_key=self.api_key)
+                # Print only if directly run or verbose logging enabled
+                if __name__ == '__main__' or os.getenv('VERBOSE_LOGGING'):
+                    print("AnthropicLLMService: Anthropic client initialized successfully.")
             except Exception as e:
                 print(f"AnthropicLLMService: Error initializing Anthropic client: {e}. Service will be unavailable.")
                 self.key_available = False
                 self.client = None
+        # else: # Warning printed by is_api_key_available
+        #     if __name__ == '__main__' or os.getenv('VERBOSE_LOGGING'):
+        #         print("AnthropicLLMService: API Key not found. Service will be unavailable.")
+
 
     def get_api_key_env_var(self) -> str:
         return ANTHROPIC_API_KEY_ENV_VAR
@@ -28,6 +35,7 @@ class AnthropicLLMService(LLMService):
     def is_api_key_available(self) -> tuple[bool, str | None]:
         key = os.environ.get(self.get_api_key_env_var())
         if not key:
+            # This warning is useful when the class is instantiated.
             print(f"Warning: Anthropic API key not found in environment variable {self.get_api_key_env_var()}")
             return False, None
         return True, key
@@ -59,14 +67,11 @@ class AnthropicLLMService(LLMService):
                 messages=[{"role": "user", "content": user_message}]
             )
 
-            # Revised logic for handling response
             if response.content and response.content[0] and isinstance(response.content[0].text, str):
                 summary = response.content[0].text.strip()
-
-                if not summary: # Handles case where .text exists but is empty or whitespace after strip
+                if not summary:
                     print(f"Anthropic API returned empty text content for: {clause_text[:100]}... Stop reason: {response.stop_reason}")
                     return "Summary generation failed: Empty content returned."
-
                 refusal_patterns = [
                     "sorry, but i cannot provide assistance with that request",
                     "i am unable to help with that request"
@@ -75,17 +80,11 @@ class AnthropicLLMService(LLMService):
                     if pattern in summary.lower():
                         print(f"Anthropic API indicated refusal for: {clause_text[:100]}...")
                         return "Could not generate summary due to content policy or other restriction from the AI."
-
                 if response.stop_reason == "max_tokens":
                     print(f"Anthropic API stopped due to max_tokens for: {clause_text[:100]}...")
                     return summary + "... (summary might be truncated due to length limits)"
-
-                # If not a refusal and not explicitly max_tokens with content (or other handled stop_reason),
-                # and content is present, return it. (e.g. stop_reason == "end_turn")
                 return summary
 
-            # Fallback for cases where response.content or response.content[0].text is not as expected
-            # or if there's a stop_reason without actual text content.
             if response.stop_reason == "max_tokens":
                 print(f"Anthropic API stopped due to max_tokens (no text content found) for: {clause_text[:100]}...")
                 return "Summary generation was stopped due to length limits (no content)."
@@ -103,29 +102,104 @@ class AnthropicLLMService(LLMService):
             print(f"An unexpected error occurred with Anthropic API client: {e}")
             return "An unexpected error occurred with Anthropic client."
 
+    def classify_clause(self, clause_text: str, available_categories: list[str]) -> str | None:
+        if not self.key_available or not self.client:
+            return None
+
+        if not clause_text or not clause_text.strip():
+            return None
+
+        try:
+            category_list_str = ", ".join([f"'{cat}'" for cat in available_categories])
+            system_prompt = (
+                f"You are an expert text classifier. Your task is to classify the provided privacy policy clause "
+                f"into exactly one of the following categories. Respond with only the category name from this list, "
+                f"and nothing else. Do not add any explanatory text before or after the category name.\n\n"
+                f"Available Categories: {category_list_str}"
+            )
+            user_message_content = (
+                f"Privacy Policy Clause to Classify:\n"
+                f"\"{clause_text}\"\n\n"
+                f"Category:"
+            )
+
+            response = self.client.messages.create(
+                model=DEFAULT_ANTHROPIC_MODEL,
+                max_tokens=50,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message_content}]
+            )
+
+            if response.content and response.content[0] and isinstance(response.content[0].text, str):
+                raw_response_text = response.content[0].text.strip()
+                if raw_response_text:
+                    cleaned_response = raw_response_text.strip("'\"")
+                    for cat in available_categories:
+                        if cleaned_response.lower() == cat.lower():
+                            return cat
+
+                    print(f"Anthropic classification response ('{raw_response_text}') not an exact match. Trying substring.")
+                    for cat in available_categories:
+                        if cat.lower() in raw_response_text.lower():
+                            return cat # Return the first substring match
+
+                    print(f"Anthropic classification response ('{raw_response_text}') did not map to any available category.")
+                    return None
+
+            if response.stop_reason == "max_tokens" and not (response.content and response.content[0].text):
+                 print(f"Anthropic API stopped due to max_tokens (no text content produced) for classification: {clause_text[:100]}...")
+                 return None
+
+            print(f"Anthropic API returned no usable content for classification: {clause_text[:100]}... Stop reason: {response.stop_reason}")
+            return None
+
+        except RateLimitError as e:
+            print(f"Anthropic API rate limit exceeded during classification: {e}")
+            return None
+        except APIError as e:
+            print(f"Anthropic API error during classification: {e}")
+            return None
+        except Exception as e:
+            print(f"An unexpected error occurred with Anthropic client during classification: {e}")
+            return None
+
 if __name__ == '__main__':
-    from unittest.mock import patch, MagicMock
     print("Anthropic LLM Service Client Script - Basic Initialization Test")
+    service = AnthropicLLMService()
 
-    # Suppress class init prints for cleaner __main__ unless VERBOSE_LOGGING is set
-    with patch('sys.stdout', new_callable=MagicMock) as mock_stdout_init_check:
-        # Check actual key status without init prints from the class constructor for this check
-        _temp_service_for_key_check = anthropic_api_client.AnthropicLLMService()
-        _key_available_for_main, _ = _temp_service_for_key_check.is_api_key_available()
-        # Restore stdout for the actual service init we want to observe for __main__
-
-    service = AnthropicLLMService() # This will use real os.environ and print its own warnings
+    # Check key availability without relying on service's internal __init__ print for this specific check
+    _key_available, _ = service.is_api_key_available()
+    if _key_available :
+        # This print is for the __main__ block itself
+        print("Anthropic API Key found by is_api_key_available(). Client should be initialized if key is valid.")
+    else:
+        # is_api_key_available already printed a warning
+        print("Anthropic API Key not found by is_api_key_available(). Client likely not initialized.")
 
     if service.key_available and service.client:
-        print("Anthropic API Key found and client initialized for __main__.")
-        sample_clause = "Your data is anonymized and aggregated before being used for research purposes."
-        sample_category = "Data Usage"
-        print(f"\nTesting summary generation for category '{sample_category}':")
-        print(f"Clause: {sample_clause}")
-        summary = service.generate_summary(sample_clause, sample_category)
-        if summary:
-            print(f"\nAnthropic Summary: {summary}")
-        else:
-            print("\nFailed to get summary from Anthropic (returned None or specific error string).")
+        print("Anthropic service instance reports key_available=True and client exists.")
+        # Test summary generation
+        print("\n--- Testing generate_summary ---")
+        summary_clause = "Your data is anonymized and aggregated before being used for research purposes."
+        summary_category = "Data Usage"
+        print(f"Clause: {summary_clause}")
+        summary = service.generate_summary(summary_clause, summary_category)
+        if summary: print(f"Summary: {summary}")
+        else: print("Failed to get summary.")
+
+        # Test classification
+        print("\n--- Testing classify_clause ---")
+        test_categories = ["Data Collection", "Data Sharing", "Security", "Other"]
+        clauses_to_test = [
+            ("We collect your name, email, and IP address.", "Data Collection"),
+            ("Your information might be shared with our advertising partners.", "Data Sharing"),
+            ("This is a very generic statement that does not fit well.", "Other")
+        ]
+        for clause, expected_cat in clauses_to_test:
+            print(f"\nClassifying clause: \"{clause}\"")
+            predicted_cat = service.classify_clause(clause, test_categories)
+            print(f"  Expected: {expected_cat}, Got: {predicted_cat}")
+            if predicted_cat != expected_cat:
+                 print(f"  Classification MISMATCH for: {clause}")
     else:
-        print("Anthropic client not initialized or key not found in __main__. Skipping live API test.")
+        print("Skipping live API test in __main__ because API key is not available or client failed to initialize.")

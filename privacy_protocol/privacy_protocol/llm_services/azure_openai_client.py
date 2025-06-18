@@ -118,20 +118,90 @@ class AzureOpenAILLMService(LLMService):
             print(f"An unexpected error occurred with Azure OpenAI API client: {e}")
             return "An unexpected error occurred with Azure OpenAI client."
 
+    def classify_clause(self, clause_text: str, available_categories: list[str]) -> str | None:
+        if not self.key_available or not self.client or not self.deployment_name:
+            return None # Service not configured
+
+        if not clause_text or not clause_text.strip():
+            return None # Or 'Other' if in available_categories and desired behavior
+
+        try:
+            category_list_str = ", ".join([f"'{cat}'" for cat in available_categories])
+            system_prompt = (
+                f"You are an expert text classifier. Your task is to classify the provided privacy policy clause "
+                f"into exactly one of the following categories. Respond with only the category name from this list, "
+                f"and nothing else. Do not add any explanatory text before or after the category name.\n\n"
+                f"Available Categories: {category_list_str}"
+            )
+            user_prompt = (
+                f"Privacy Policy Clause to Classify:\n"
+                f"\"{clause_text}\"\n\n"
+                f"Category:"
+            )
+
+            chat_completion = self.client.chat.completions.create(
+                model=self.deployment_name, # Use the deployment name for Azure
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.1,
+                max_tokens=50
+            )
+
+            if chat_completion.choices and chat_completion.choices[0].message and chat_completion.choices[0].message.content:
+                raw_response_text = chat_completion.choices[0].message.content.strip()
+
+                if raw_response_text:
+                    cleaned_response = raw_response_text.strip("'\"")
+                    for cat in available_categories:
+                        if cleaned_response.lower() == cat.lower():
+                            return cat
+
+                    print(f"Azure OpenAI classification response ('{raw_response_text}') not an exact match. Trying substring.")
+                    for cat in available_categories:
+                        if cat.lower() in raw_response_text.lower():
+                            return cat
+
+                    print(f"Azure OpenAI classification response ('{raw_response_text}') did not map to any available category.")
+                    return None
+
+            if chat_completion.choices and chat_completion.choices[0].finish_reason == 'content_filter':
+                print(f"Azure OpenAI API content filter triggered for classification: {clause_text[:100]}...")
+                return "Could not generate summary due to Azure OpenAI content filter." # Specific message
+
+            print(f"Azure OpenAI API returned no usable content for classification: {clause_text[:100]}...")
+            return None
+
+        except RateLimitError as e:
+            print(f"Azure OpenAI API rate limit exceeded during classification: {e}")
+            return None
+        except APIError as e:
+            print(f"Azure OpenAI API error during classification: {e}. Status: {e.status_code if hasattr(e, 'status_code') else 'N/A'}")
+            return None
+        except Exception as e:
+            print(f"An unexpected error occurred with Azure OpenAI client during classification: {e}")
+            return None
+
 if __name__ == '__main__':
     print("Azure OpenAI LLM Service Client Script - Basic Initialization Test")
-    service = AzureOpenAILLMService() # Init messages (including warnings if key missing) will print here
+    service = AzureOpenAILLMService()
     print(f"Azure config available (key_available flag): {service.key_available}")
     if service.key_available and service.client:
         print("Azure OpenAI client appears initialized based on key_available flag.")
-        sample_clause = "Your data is processed by our servers located in the European Union and is subject to GDPR."
-        sample_category = "International Data Transfer"
-        print(f"\nTesting summary generation for category '{sample_category}':")
-        print(f"Clause: {sample_clause}")
-        summary = service.generate_summary(sample_clause, sample_category)
-        if summary:
-            print(f"\nAzure OpenAI Summary: {summary}")
-        else:
-            print("\nFailed to get summary from Azure OpenAI.")
+        # ... (summary test code can be kept or simplified) ...
+        print("\n--- Testing classify_clause with Azure OpenAI ---")
+        test_categories = ["Data Collection", "Data Sharing", "Security", "Other"]
+        clauses_to_test = [
+            ("We collect your name, email, and IP address for service provision.", "Data Collection"),
+            ("Your information might be shared with our advertising partners for marketing.", "Data Sharing"),
+            ("This is a very generic statement that does not fit well into specific categories.", "Other")
+        ]
+        for clause, expected_cat in clauses_to_test:
+            print(f"\nClassifying clause: \"{clause}\"")
+            predicted_cat = service.classify_clause(clause, test_categories)
+            print(f"  Expected: {expected_cat}, Got: {predicted_cat}")
+            if predicted_cat != expected_cat:
+                 print(f"  Classification MISMATCH for: {clause}")
     else:
         print("Azure OpenAI client not initialized or full config not found. Skipping live API test in __main__.")
