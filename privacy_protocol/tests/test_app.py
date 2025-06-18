@@ -10,19 +10,30 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
 from app import app
+from privacy_protocol.interpreter import PrivacyInterpreter
+from privacy_protocol.plain_language_translator import PlainLanguageTranslator # For re-init
 from privacy_protocol.user_preferences import (
     get_default_preferences,
     CURRENT_PREFERENCES_PATH,
     DEFAULT_PREFERENCES_PATH,
     USER_DATA_DIR,
 )
-from privacy_protocol.llm_services import llm_service_factory, ACTIVE_LLM_PROVIDER_ENV_VAR, PROVIDER_GEMINI, PROVIDER_OPENAI
-from privacy_protocol.llm_services.gemini_api_client import GeminiLLMService
-from privacy_protocol.llm_services.openai_api_client import OpenAILLMService
+from privacy_protocol.llm_services import (
+    llm_service_factory,
+    ACTIVE_LLM_PROVIDER_ENV_VAR,
+    PROVIDER_GEMINI,
+    PROVIDER_OPENAI,
+    PROVIDER_ANTHROPIC
+)
 
-# Paths for mocking specific service methods that are part of the INSTANCE, not the factory.
-# The factory will return a REAL instance (Gemini or OpenAI), then we mock methods ON that instance.
-# This is different from mocking the constructor as done in test_llm_service_factory.
+GEMINI_SERVICE_GENERATE_SUMMARY_PATH = 'privacy_protocol.llm_services.gemini_api_client.GeminiLLMService.generate_summary'
+OPENAI_SERVICE_GENERATE_SUMMARY_PATH = 'privacy_protocol.llm_services.openai_api_client.OpenAILLMService.generate_summary'
+ANTHROPIC_SERVICE_GENERATE_SUMMARY_PATH = 'privacy_protocol.llm_services.anthropic_api_client.AnthropicLLMService.generate_summary'
+
+GEMINI_SERVICE_KEY_CHECK_PATH = 'privacy_protocol.llm_services.gemini_api_client.GeminiLLMService.is_api_key_available'
+OPENAI_SERVICE_KEY_CHECK_PATH = 'privacy_protocol.llm_services.openai_api_client.OpenAILLMService.is_api_key_available'
+ANTHROPIC_SERVICE_KEY_CHECK_PATH = 'privacy_protocol.llm_services.anthropic_api_client.AnthropicLLMService.is_api_key_available'
+
 
 SPACY_MODEL_AVAILABLE = False
 NLP_UNAVAILABLE_MESSAGE_IN_RESULTS = "NLP model 'en_core_web_sm' was not loaded"
@@ -41,8 +52,16 @@ class TestWebApp(unittest.TestCase):
         app.config['WTF_CSRF_ENABLED'] = False
         self.client = app.test_client()
 
-        if not app.interpreter.keywords_data:
-             print("WARNING (test_app.py setUp): Keywords not loaded in app.interpreter.", file=sys.stderr)
+        # Re-initialize interpreter for each test. This also re-initializes PlainLanguageTranslator,
+        # which will call get_llm_service() allowing env var patches to take effect.
+        with patch('sys.stdout', new_callable=MagicMock): # Suppress all init prints
+            app.interpreter = PrivacyInterpreter()
+
+        keywords_path = os.path.join(os.path.dirname(app.root_path), 'data', 'keywords.json')
+        if os.path.exists(keywords_path):
+             app.interpreter.load_keywords_from_path(keywords_path)
+        else:
+             print(f"WARNING (test_app.py setUp): Keywords file not found at {keywords_path} for app.interpreter.", file=sys.stderr)
 
         if os.path.exists(USER_DATA_DIR):
             shutil.rmtree(USER_DATA_DIR)
@@ -55,18 +74,11 @@ class TestWebApp(unittest.TestCase):
 
         app.interpreter.load_user_preferences(default_prefs_content.copy())
 
-        # Ensure the PlainLanguageTranslator's LLM service is re-initialized based on current env for each test
-        # Suppress prints during this re-initialization for cleaner test logs
-        with patch('sys.stdout', new_callable=MagicMock):
-            app.interpreter.plain_language_translator.llm_service = llm_service_factory.get_llm_service()
-            app.interpreter.plain_language_translator.load_model() # Re-run load_model to reflect new service
-
     def tearDown(self):
         if os.path.exists(USER_DATA_DIR):
             shutil.rmtree(USER_DATA_DIR)
-        if ACTIVE_LLM_PROVIDER_ENV_VAR in os.environ: # Clean up env var if tests set it
+        if ACTIVE_LLM_PROVIDER_ENV_VAR in os.environ:
             del os.environ[ACTIVE_LLM_PROVIDER_ENV_VAR]
-
 
     def _get_current_preferences_from_file(self):
         if os.path.exists(CURRENT_PREFERENCES_PATH):
@@ -80,31 +92,36 @@ class TestWebApp(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Privacy Policy Analyzer", response.data)
 
-    @patch('privacy_protocol.llm_services.gemini_api_client.GeminiLLMService.generate_summary')
-    @patch('privacy_protocol.llm_services.gemini_api_client.GeminiLLMService.is_api_key_available', return_value=(False, None))
+    @patch.dict(os.environ, {ACTIVE_LLM_PROVIDER_ENV_VAR: PROVIDER_GEMINI}, clear=True)
+    @patch(GEMINI_SERVICE_GENERATE_SUMMARY_PATH)
+    @patch(GEMINI_SERVICE_KEY_CHECK_PATH, return_value=(False, None))
     def test_analyze_page_empty_input(self, mock_gemini_key_check, mock_gemini_summary_gen):
-        with patch.dict(os.environ, {ACTIVE_LLM_PROVIDER_ENV_VAR: PROVIDER_GEMINI}, clear=True):
-             # Re-initialize translator's service with current env var for this test
-            with patch('sys.stdout', new_callable=MagicMock):
-                app.interpreter.plain_language_translator.llm_service = llm_service_factory.get_llm_service()
-                app.interpreter.plain_language_translator.load_model()
+        # Re-initialize interpreter after @patch.dict to ensure factory picks up env var
+        with patch('sys.stdout', new_callable=MagicMock):
+            app.interpreter = PrivacyInterpreter()
+            # Need to reload keywords and prefs for the new interpreter instance
+            keywords_path = os.path.join(os.path.dirname(app.root_path), 'data', 'keywords.json')
+            if os.path.exists(keywords_path): app.interpreter.load_keywords_from_path(keywords_path)
+            app.interpreter.load_user_preferences(get_default_preferences().copy())
 
-            response = self.client.post('/analyze', data={'policy_text': ''})
-            self.assertEqual(response.status_code, 200)
-            self.assertIn(b"No analysis results to display.", response.data)
-            mock_gemini_summary_gen.assert_not_called()
+        response = self.client.post('/analyze', data={'policy_text': ''})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"No analysis results to display.", response.data)
+        mock_gemini_summary_gen.assert_not_called()
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available for this test.")
     @patch.dict(os.environ, {ACTIVE_LLM_PROVIDER_ENV_VAR: PROVIDER_GEMINI}, clear=True)
-    @patch('privacy_protocol.llm_services.gemini_api_client.GeminiLLMService.is_api_key_available', return_value=(True, 'fake_gemini_key'))
-    @patch('privacy_protocol.llm_services.gemini_api_client.GeminiLLMService.generate_summary')
+    @patch(GEMINI_SERVICE_KEY_CHECK_PATH, return_value=(True, 'fake_gemini_key'))
+    @patch(GEMINI_SERVICE_GENERATE_SUMMARY_PATH)
     def test_analyze_page_with_gemini_provider_mocked_summary(self, mock_gemini_summary_gen, mock_gemini_key_check):
         expected_summary = "Mocked Gemini Summary for display."
         mock_gemini_summary_gen.return_value = expected_summary
 
-        with patch('sys.stdout', new_callable=MagicMock): # Suppress re-init prints
-            app.interpreter.plain_language_translator.llm_service = llm_service_factory.get_llm_service()
-            app.interpreter.plain_language_translator.load_model()
+        with patch('sys.stdout', new_callable=MagicMock):
+            app.interpreter = PrivacyInterpreter()
+            keywords_path = os.path.join(os.path.dirname(app.root_path), 'data', 'keywords.json')
+            if os.path.exists(keywords_path): app.interpreter.load_keywords_from_path(keywords_path)
+            app.interpreter.load_user_preferences(get_default_preferences().copy())
 
         current_prefs = get_default_preferences()
         current_prefs['data_sharing_for_ads_allowed'] = False
@@ -119,15 +136,17 @@ class TestWebApp(unittest.TestCase):
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available for this test.")
     @patch.dict(os.environ, {ACTIVE_LLM_PROVIDER_ENV_VAR: PROVIDER_OPENAI}, clear=True)
-    @patch('privacy_protocol.llm_services.openai_api_client.OpenAILLMService.is_api_key_available', return_value=(True, 'fake_openai_key'))
-    @patch('privacy_protocol.llm_services.openai_api_client.OpenAILLMService.generate_summary')
+    @patch(OPENAI_SERVICE_KEY_CHECK_PATH, return_value=(True, 'fake_openai_key'))
+    @patch(OPENAI_SERVICE_GENERATE_SUMMARY_PATH)
     def test_analyze_page_with_openai_provider_mocked_summary(self, mock_openai_summary_gen, mock_openai_key_check):
         expected_summary = "Mocked OpenAI Summary for display."
         mock_openai_summary_gen.return_value = expected_summary
 
         with patch('sys.stdout', new_callable=MagicMock):
-            app.interpreter.plain_language_translator.llm_service = llm_service_factory.get_llm_service()
-            app.interpreter.plain_language_translator.load_model()
+            app.interpreter = PrivacyInterpreter()
+            keywords_path = os.path.join(os.path.dirname(app.root_path), 'data', 'keywords.json')
+            if os.path.exists(keywords_path): app.interpreter.load_keywords_from_path(keywords_path)
+            app.interpreter.load_user_preferences(get_default_preferences().copy())
 
         current_prefs = get_default_preferences()
         current_prefs['cookies_for_tracking_allowed'] = False
@@ -141,13 +160,40 @@ class TestWebApp(unittest.TestCase):
         self.assertIn(f'<p class="plain-summary"><strong>Plain Language Summary:</strong> {expected_summary}</p>'.encode('utf-8'), response.data)
 
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available for this test.")
+    @patch.dict(os.environ, {ACTIVE_LLM_PROVIDER_ENV_VAR: PROVIDER_ANTHROPIC}, clear=True)
+    @patch(ANTHROPIC_SERVICE_KEY_CHECK_PATH, return_value=(True, 'fake_anthropic_key'))
+    @patch(ANTHROPIC_SERVICE_GENERATE_SUMMARY_PATH)
+    def test_analyze_page_with_anthropic_provider_mocked_summary(self, mock_anthropic_summary_gen, mock_anthropic_key_check):
+        expected_summary = "Mocked Anthropic Summary for display via app."
+        mock_anthropic_summary_gen.return_value = expected_summary
+
+        with patch('sys.stdout', new_callable=MagicMock):
+            app.interpreter = PrivacyInterpreter()
+            keywords_path = os.path.join(os.path.dirname(app.root_path), 'data', 'keywords.json')
+            if os.path.exists(keywords_path): app.interpreter.load_keywords_from_path(keywords_path)
+            app.interpreter.load_user_preferences(get_default_preferences().copy())
+
+        policy_text = "This policy is about data usage patterns with Anthropic."
+        app.interpreter.load_user_preferences(get_default_preferences())
+
+        response = self.client.post('/analyze', data={'policy_text': policy_text})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Analysis Results", response.data)
+        self.assertIn(bytes(expected_summary, 'utf-8'), response.data)
+        mock_anthropic_summary_gen.assert_called_once()
+        self.assertIn(f'<p class="plain-summary"><strong>Plain Language Summary:</strong> {expected_summary}</p>'.encode('utf-8'), response.data)
+
+
+    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available for this test.")
     @patch.dict(os.environ, {ACTIVE_LLM_PROVIDER_ENV_VAR: PROVIDER_GEMINI}, clear=True)
-    @patch('privacy_protocol.llm_services.gemini_api_client.GeminiLLMService.is_api_key_available', return_value=(False, None))
-    @patch('privacy_protocol.llm_services.gemini_api_client.GeminiLLMService.generate_summary')
+    @patch(GEMINI_SERVICE_KEY_CHECK_PATH, return_value=(False, None))
+    @patch(GEMINI_SERVICE_GENERATE_SUMMARY_PATH)
     def test_analyze_page_llm_key_unavailable_uses_fallback_summary(self, mock_gemini_summary_gen, mock_gemini_key_check):
         with patch('sys.stdout', new_callable=MagicMock):
-            app.interpreter.plain_language_translator.llm_service = llm_service_factory.get_llm_service()
-            app.interpreter.plain_language_translator.load_model()
+            app.interpreter = PrivacyInterpreter()
+            keywords_path = os.path.join(os.path.dirname(app.root_path), 'data', 'keywords.json')
+            if os.path.exists(keywords_path): app.interpreter.load_keywords_from_path(keywords_path)
+            app.interpreter.load_user_preferences(get_default_preferences().copy())
 
         policy_text = "We collect your email."
         app.interpreter.load_user_preferences(get_default_preferences())

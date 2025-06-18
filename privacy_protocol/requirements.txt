@@ -3,6 +3,7 @@ flask>=2.0.0,<3.0.0
 scikit-learn>=0.24,<1.4
 google-generativeai>=0.3.0,<0.5.0
 openai>=1.0.0,<2.0.0
+anthropic>=0.20.0,<0.22.0
 # Add en_core_web_sm as a comment, as it's installed via spacy download
 # For a production setup, you might package the model or ensure it's pre-installed.
 # Example: en_core_web_sm (this is not a pip package)

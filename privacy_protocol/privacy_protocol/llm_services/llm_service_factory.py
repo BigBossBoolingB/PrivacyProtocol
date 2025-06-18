@@ -2,6 +2,7 @@ import os
 from .base_llm_service import LLMService
 from .gemini_api_client import GeminiLLMService
 from .openai_api_client import OpenAILLMService
+from .anthropic_api_client import AnthropicLLMService # Import Anthropic service
 
 # Environment variable to select the active LLM provider
 ACTIVE_LLM_PROVIDER_ENV_VAR = "ACTIVE_LLM_PROVIDER"
@@ -10,11 +11,12 @@ DEFAULT_LLM_PROVIDER = "gemini" # Default to Gemini if not specified
 # Supported provider names (must match keys in PROVIDER_MAP)
 PROVIDER_GEMINI = "gemini"
 PROVIDER_OPENAI = "openai"
+PROVIDER_ANTHROPIC = "anthropic" # Add Anthropic constant
 
 PROVIDER_MAP = {
     PROVIDER_GEMINI: GeminiLLMService,
     PROVIDER_OPENAI: OpenAILLMService,
-    # Future: PROVIDER_ANTHROPIC: AnthropicLLMService,
+    PROVIDER_ANTHROPIC: AnthropicLLMService, # Add Anthropic to map
 }
 
 def get_llm_service(provider_name_override: str | None = None) -> LLMService | None:
@@ -108,5 +110,15 @@ if __name__ == '__main__':
             env_service_gemini = get_llm_service()
         if env_service_gemini:
             print(f"Successfully loaded service from ENV_VAR: {type(env_service_gemini).__name__} (expected Gemini)")
+            print(f"  Key available: {env_service_gemini.key_available if hasattr(env_service_gemini, 'key_available') else 'N/A'}")
         else:
             print("Failed to load service from ENV_VAR (Gemini).")
+
+    print("\n--- Testing Anthropic Provider (Explicit Override) ---")
+    with patch('sys.stdout') as _: # Suppress prints from AnthropicLLMService's __init__
+        anthropic_service = get_llm_service(provider_name_override=PROVIDER_ANTHROPIC)
+    if anthropic_service:
+        print(f"Successfully loaded Anthropic service: {type(anthropic_service).__name__}")
+        print(f"API Key available for Anthropic (as per service instance): {anthropic_service.key_available if hasattr(anthropic_service, 'key_available') else 'N/A'}")
+    else:
+        print("Failed to load Anthropic service.")

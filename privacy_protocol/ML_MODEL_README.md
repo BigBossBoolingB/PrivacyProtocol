@@ -4,18 +4,37 @@ This document outlines the path from the current placeholder (dummy) AI clause c
 
 ## External API Integrations
 
-This section details the use of external AI services to enhance the capabilities of Privacy Protocol.
+This section details the use of external AI services to enhance the capabilities of Privacy Protocol. The application uses an `LLMServiceFactory` to select and instantiate a configured LLM provider based on the `ACTIVE_LLM_PROVIDER` environment variable. Supported providers are "gemini", "openai", and "anthropic".
 
 ### Gemini Pro API for Plain Language Translation
-- **Service Used:** The application leverages the Gemini Pro API (from Google) to generate plain language summaries of privacy policy clauses.
-- **Purpose:** To translate complex legal jargon from policy clauses into simple, clear terms understandable by a general audience.
+- **Service Used:** Google's Gemini Pro API.
+- **Purpose:** To translate complex legal jargon from policy clauses into simple, clear terms.
 - **API Key Configuration:**
-    - To use this feature, you must obtain an API key from Google AI Studio (or Google Cloud Vertex AI if using it within that ecosystem).
-    - The API key must be set as an environment variable named `GEMINI_API_KEY`.
-    - You can set this variable in your shell (e.g., `export GEMINI_API_KEY="your_key_here"`) or by creating a `.env` file in the project root (`privacy_protocol/`) and placing the key there (e.g., `GEMINI_API_KEY="your_key_here"`). Refer to `.env.example`.
-    - Ensure the `.env` file is listed in `.gitignore` to prevent accidental commitment of the key.
-- **Client Module:** The `privacy_protocol/privacy_protocol/gemini_api_client.py` module handles communication with the Gemini API.
-- **Fallback Mechanism:** If the `GEMINI_API_KEY` is not configured, or if the API call fails (e.g., network issues, rate limits, content safety blocks), the `PlainLanguageTranslator` will fall back to providing predefined, category-based dummy explanations. This ensures basic functionality even if the generative AI service is unavailable.
+    - Requires an API key from Google AI Studio (or Google Cloud Vertex AI).
+    - Set as an environment variable named `GEMINI_API_KEY`.
+    - Refer to `.env.example` and the main `README.md` for setup instructions.
+- **Client Module:** `privacy_protocol/privacy_protocol/llm_services/gemini_api_client.py` (as `GeminiLLMService`).
+- **Fallback:** If the API key is not configured or API calls fail, the system falls back to predefined dummy explanations.
+
+### OpenAI (GPT models) for Plain Language Translation
+- **Service Used:** OpenAI's GPT models (e.g., gpt-3.5-turbo).
+- **Purpose:** Alternative provider for generating plain-language summaries.
+- **API Key Configuration:**
+    - Requires an API key from OpenAI.
+    - Set as an environment variable named `OPENAI_API_KEY`.
+    - Refer to `.env.example` and the main `README.md`.
+- **Client Module:** `privacy_protocol/privacy_protocol/llm_services/openai_api_client.py` (as `OpenAILLMService`).
+- **Fallback:** Uses dummy explanations if the API key is missing or calls fail.
+
+### Anthropic (Claude models) for Plain Language Translation
+- **Service Used:** Anthropic's Claude models (e.g., claude-3-sonnet).
+- **Purpose:** Alternative provider for generating plain-language summaries.
+- **API Key Configuration:**
+    - Requires an API key from Anthropic.
+    - Set as an environment variable named `ANTHROPIC_API_KEY`.
+    - Refer to `.env.example` and the main `README.md`.
+- **Client Module:** `privacy_protocol/privacy_protocol/llm_services/anthropic_api_client.py` (as `AnthropicLLMService`).
+- **Fallback:** Uses dummy explanations if the API key is missing or calls fail.
 
 ## Clause Classification: From Dummy to Trained Model
 
@@ -35,36 +54,13 @@ The application currently uses a `ClauseClassifier` located in `privacy_protocol
 
 ### Defined Clause Categories
 
-The target categories for clause classification are currently defined in `privacy_protocol/privacy_protocol/clause_categories.py`. As of this writing, they include:
-
-- Data Collection
-- Data Sharing
-- Data Usage
-- User Rights
-- Security
-- Data Retention
-- Consent/Opt-out
-- Policy Change
-- International Data Transfer
-- Childrens Privacy
-- Contact Information
-- Cookies and Tracking Technologies
-- Data Selling
-- Other (default/fallback)
+The target categories for clause classification are currently defined in `privacy_protocol/privacy_protocol/clause_categories.py`. (List of categories as previously present).
 
 This list may evolve as the project matures.
 
 ### Roadmap to a Trained ML Model for Clause Classification
 
-Replacing the dummy classifier with a trained ML model involves several key phases:
-
-1.  **Data Collection and Preparation** (Details as previously listed)
-2.  **Data Annotation** (Details as previously listed)
-3.  **Model Selection and Architecture** (Details as previously listed)
-4.  **Model Training** (Details as previously listed)
-5.  **Model Evaluation** (Details as previously listed)
-6.  **Model Serialization and Integration** (Details as previously listed)
-7.  **Iteration and Improvement** (Details as previously listed)
+Replacing the dummy classifier with a trained ML model involves several key phases: (Details for phases 1-7 remain largely the same as previously listed: Data Collection, Annotation, Model Selection, Training, Evaluation, Serialization/Integration, Iteration).
 
 ### Considerations for Clause Classification Model
 - **Computational Resources:** Training large transformer models can be computationally intensive.
@@ -73,16 +69,16 @@ Replacing the dummy classifier with a trained ML model involves several key phas
 
 This roadmap provides a high-level guide for developing a robust AI-powered clause classifier.
 
-## Plain-Language Translation Model Development
-*(Note: The primary approach for plain-language translation has shifted to using the Gemini Pro API as described in the "External API Integrations" section. The following details regarding training a custom sequence-to-sequence model are kept for long-term reference or as an alternative strategy if direct API use becomes infeasible or if highly specialized custom fine-tuning is required.)*
+## Plain-Language Translation: Strategy and Development
+*(Note: The primary approach for plain-language translation is now through configurable external LLM APIs (Gemini, OpenAI, Anthropic) managed by the `LLMServiceFactory` and utilized by `PlainLanguageTranslator`. The original notes below on training a custom sequence-to-sequence model are kept for long-term reference or as an alternative strategy if direct API use becomes infeasible or if highly specialized custom fine-tuning proves necessary beyond what current APIs offer.)*
 
-### Current State: `PlainLanguageTranslator` with Gemini Integration
+### Current State: `PlainLanguageTranslator` with External API Integration
 
 The application includes a `PlainLanguageTranslator` in `privacy_protocol/privacy_protocol/plain_language_translator.py`.
 **Functionality:**
-- This component now primarily acts as a wrapper around the `gemini_api_client.py`.
-- It attempts to call the Gemini Pro API to generate plain-language summaries for input clauses, using the AI category of the clause to provide context to the generative model via a structured prompt.
-- If the Gemini API key is not configured, or if an API call fails (due to network issues, rate limits, content safety blocks, etc.), the translator falls back to providing predefined, category-based dummy explanations.
+- This component utilizes the `LLMServiceFactory` to obtain a configured LLM service instance (e.g., `GeminiLLMService`, `OpenAILLMService`, `AnthropicLLMService`).
+- It attempts to call the selected LLM service to generate plain-language summaries for input clauses. The AI category of the clause is used to provide context to the generative model via a structured prompt.
+- If the selected LLM service's API key is not configured, or if an API call fails, the translator falls back to providing predefined, category-based dummy explanations.
 
 **Limitations of the Fallback Dummy Explanations:**
 - **Generic Summaries:** The fallback summaries are category-based, not tailored to the specific content of the individual clause.
@@ -90,13 +86,6 @@ The application includes a `PlainLanguageTranslator` in `privacy_protocol/privac
 
 ### Roadmap to a Custom Trained AI Translation/Summarization Model (Alternative Strategy)
 
-Replacing or supplementing the Gemini API with a custom-trained AI model (typically a sequence-to-sequence model) would involve:
+Replacing or supplementing the external APIs with a custom-trained AI model (typically a sequence-to-sequence model) would involve: (Details for phases 1-6 remain largely the same as previously listed: Parallel Corpus Collection, Model Selection, Training/Fine-tuning, Evaluation, Serialization/Integration, Iteration).
 
-1.  **Data Collection and Preparation (Parallel Corpus):** (Details as previously listed)
-2.  **Model Selection (Sequence-to-Sequence Models):** (Details as previously listed)
-3.  **Model Training/Fine-tuning:** (Details as previously listed)
-4.  **Model Evaluation:** (Details as previously listed)
-5.  **Model Serialization and Integration:** (Details as previously listed, would involve updating `PlainLanguageTranslator` to use the custom model)
-6.  **Iteration and Refinement:** (Details as previously listed)
-
-Developing a high-quality custom AI plain-language translator is a significant undertaking, with data collection for a parallel corpus being a primary challenge. The current Gemini API integration provides a powerful starting point.
+Developing a high-quality custom AI plain-language translator is a significant undertaking, with data collection for a parallel corpus being a primary challenge. The current multi-provider API integration offers flexibility and access to powerful existing models.
