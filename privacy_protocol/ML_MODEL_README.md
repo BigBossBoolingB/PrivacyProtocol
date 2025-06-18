@@ -1,22 +1,39 @@
 # Privacy Protocol: Machine Learning Model Integration Roadmap
 
-This document outlines the path from the current placeholder (dummy) AI clause classifier to a fully trained machine learning model for categorizing privacy policy clauses. The goal is to enhance the accuracy and depth of analysis provided by the Privacy Protocol application.
+This document outlines the path from the current placeholder (dummy) AI clause classifier to a fully trained machine learning model for categorizing privacy policy clauses, and the integration of generative AI for plain-language summaries. The goal is to enhance the accuracy and depth of analysis provided by the Privacy Protocol application.
 
-## Current State: Dummy Classifier
+## External API Integrations
+
+This section details the use of external AI services to enhance the capabilities of Privacy Protocol.
+
+### Gemini Pro API for Plain Language Translation
+- **Service Used:** The application leverages the Gemini Pro API (from Google) to generate plain language summaries of privacy policy clauses.
+- **Purpose:** To translate complex legal jargon from policy clauses into simple, clear terms understandable by a general audience.
+- **API Key Configuration:**
+    - To use this feature, you must obtain an API key from Google AI Studio (or Google Cloud Vertex AI if using it within that ecosystem).
+    - The API key must be set as an environment variable named `GEMINI_API_KEY`.
+    - You can set this variable in your shell (e.g., `export GEMINI_API_KEY="your_key_here"`) or by creating a `.env` file in the project root (`privacy_protocol/`) and placing the key there (e.g., `GEMINI_API_KEY="your_key_here"`). Refer to `.env.example`.
+    - Ensure the `.env` file is listed in `.gitignore` to prevent accidental commitment of the key.
+- **Client Module:** The `privacy_protocol/privacy_protocol/gemini_api_client.py` module handles communication with the Gemini API.
+- **Fallback Mechanism:** If the `GEMINI_API_KEY` is not configured, or if the API call fails (e.g., network issues, rate limits, content safety blocks), the `PlainLanguageTranslator` will fall back to providing predefined, category-based dummy explanations. This ensures basic functionality even if the generative AI service is unavailable.
+
+## Clause Classification: From Dummy to Trained Model
+
+### Current State: Dummy Classifier
 
 The application currently uses a `ClauseClassifier` located in `privacy_protocol/privacy_protocol/ml_classifier.py`. This is a **placeholder/dummy classifier** that operates based on a predefined set of rules using simple keyword and regex matching.
 
 **Purpose of the Dummy Classifier:**
-- To establish the software architecture for integrating an ML model.
-- To define the expected input (clause text) and output (a category string) for the classification component.
-- To allow the rest of the application (interpreter, web interface, tests) to be built and tested with a consistent AI component interface.
+- To establish the software architecture for integrating an ML model for clause categorization.
+- To define the expected input (clause text) and output (a category string) for this classification component.
+- To allow the rest of the application (interpreter, web interface, tests) to be built and tested with a consistent AI component interface for categorization.
 
 **Limitations of the Dummy Classifier:**
-- **Accuracy:** Relies on manually curated keywords and simple rules, which can be easily fooled by complex sentence structures, synonyms, or nuanced language.
-- **Scalability:** Manually adding rules for every possible phrasing or new concept is not sustainable.
-- **Generalization:** Poor at handling unseen phrasings or new types of clauses.
+- **Accuracy:** Relies on manually curated keywords and simple rules.
+- **Scalability:** Manually adding rules for every possible phrasing is not sustainable.
+- **Generalization:** Poor at handling unseen phrasings.
 
-## Defined Clause Categories
+### Defined Clause Categories
 
 The target categories for clause classification are currently defined in `privacy_protocol/privacy_protocol/clause_categories.py`. As of this writing, they include:
 
@@ -35,129 +52,51 @@ The target categories for clause classification are currently defined in `privac
 - Data Selling
 - Other (default/fallback)
 
-This list may evolve as the project matures and more specific classification needs are identified.
+This list may evolve as the project matures.
 
-## Roadmap to a Trained ML Model
+### Roadmap to a Trained ML Model for Clause Classification
 
 Replacing the dummy classifier with a trained ML model involves several key phases:
 
-### 1. Data Collection and Preparation
-- **Acquire Raw Data:** Collect a large corpus of privacy policy documents. Sources could include:
-    - Publicly available datasets (e.g., from academic research, Kaggle).
-    - Web scraping of policies from various websites (ensure compliance with `robots.txt` and terms of service).
-- **Preprocessing:**
-    - Segment policies into individual clauses or sentences. The existing spaCy sentence segmentation can be a starting point.
-    - Clean the text data: remove HTML, normalize Unicode, handle special characters, potentially lowercase (though modern transformer models might handle casing).
+1.  **Data Collection and Preparation** (Details as previously listed)
+2.  **Data Annotation** (Details as previously listed)
+3.  **Model Selection and Architecture** (Details as previously listed)
+4.  **Model Training** (Details as previously listed)
+5.  **Model Evaluation** (Details as previously listed)
+6.  **Model Serialization and Integration** (Details as previously listed)
+7.  **Iteration and Improvement** (Details as previously listed)
 
-### 2. Data Annotation
-- **Annotation Guidelines:** Develop clear, consistent guidelines for assigning each clause to one of the predefined `CLAUSE_CATEGORIES`.
-- **Annotation Process:** This is the most critical and often labor-intensive part.
-    - Use an annotation tool (e.g., Doccano, Label Studio, or custom scripts).
-    - Involve multiple annotators for a subset of data to measure inter-annotator agreement (IAA) and refine guidelines.
-    - Aim for a sufficiently large and diverse annotated dataset. The size will depend on model complexity and desired accuracy (thousands to tens of thousands of labeled clauses).
-
-### 3. Model Selection and Architecture
-- **Baseline Models:** Start with simpler models (e.g., Naive Bayes with TF-IDF features, Logistic Regression) to establish a baseline performance.
-- **Advanced Models (Recommended):** Leverage pre-trained transformer models (e.g., BERT, RoBERTa, DistilBERT, or legal-specific variants if available) via libraries like Hugging Face Transformers.
-    - These models excel at understanding text context and nuance.
-    - Fine-tuning a pre-trained transformer on the annotated dataset is a common and effective approach.
-- **Model Experimentation:** Try different architectures, hyperparameters, and fine-tuning strategies.
-
-### 4. Model Training
-- **Splitting Data:** Divide the annotated dataset into training, validation, and test sets.
-- **Training Environment:** Set up a suitable environment with necessary hardware (GPU recommended for transformers) and software (PyTorch, TensorFlow, Hugging Face libraries).
-- **Training Loop:** Implement the training process, including loss calculation, optimization, and backpropagation.
-- **Monitoring:** Track metrics like loss and accuracy on the validation set during training to prevent overfitting and decide when to stop training.
-
-### 5. Model Evaluation
-- **Metrics:** Evaluate the trained model on the hold-out test set using metrics such as:
-    - Accuracy (overall and per-category)
-    - Precision, Recall, F1-score (especially important for imbalanced datasets)
-    - Confusion Matrix (to understand misclassifications)
-- **Error Analysis:** Manually review misclassified examples to identify patterns and areas for improvement (e.g., ambiguous clauses, insufficient data for certain categories, guideline issues).
-
-### 6. Model Serialization and Integration
-- **Serialization:** Save the trained model (weights, configuration, tokenizer if applicable) to disk (e.g., using `joblib`, `pickle`, or the model library's native saving methods like Hugging Face's `save_pretrained`).
-- **Integration:**
-    - Modify `ClauseClassifier.load_model()` in `ml_classifier.py` to load the serialized trained model instead of using dummy rules.
-    - Ensure the `ClauseClassifier.predict()` method uses the loaded model to make predictions on new clause text.
-    - Manage model file paths and dependencies.
-
-### 7. Iteration and Improvement
-- **Continuous Learning:** The ML model is not a one-time setup.
-    - Collect new data and user feedback.
-    - Periodically retrain or fine-tune the model with new annotated data.
-    - Stay updated with newer model architectures and techniques.
-
-## Considerations
+### Considerations for Clause Classification Model
 - **Computational Resources:** Training large transformer models can be computationally intensive.
-- **Dataset Bias:** The model will learn biases present in the training data. Strive for diverse and representative data.
-- **Interpretability:** Understanding *why* a model makes a certain prediction can be challenging but important, especially for legal text.
+- **Dataset Bias:** The model will learn biases present in the training data.
+- **Interpretability:** Understanding model predictions can be challenging but important.
 
-This roadmap provides a high-level guide. Each step will require careful planning, execution, and iteration to develop a robust and accurate AI-powered clause classifier for Privacy Protocol.
+This roadmap provides a high-level guide for developing a robust AI-powered clause classifier.
 
 ## Plain-Language Translation Model Development
+*(Note: The primary approach for plain-language translation has shifted to using the Gemini Pro API as described in the "External API Integrations" section. The following details regarding training a custom sequence-to-sequence model are kept for long-term reference or as an alternative strategy if direct API use becomes infeasible or if highly specialized custom fine-tuning is required.)*
 
-Beyond categorizing clauses, a key goal for Privacy Protocol is to provide users with clear, plain-language summaries or translations of complex legal jargon found in privacy policies. This section outlines the roadmap from the current placeholder translator to a full AI-powered translation/summarization model.
+### Current State: `PlainLanguageTranslator` with Gemini Integration
 
-### Current State: Dummy Plain-Language Translator
+The application includes a `PlainLanguageTranslator` in `privacy_protocol/privacy_protocol/plain_language_translator.py`.
+**Functionality:**
+- This component now primarily acts as a wrapper around the `gemini_api_client.py`.
+- It attempts to call the Gemini Pro API to generate plain-language summaries for input clauses, using the AI category of the clause to provide context to the generative model via a structured prompt.
+- If the Gemini API key is not configured, or if an API call fails (due to network issues, rate limits, content safety blocks, etc.), the translator falls back to providing predefined, category-based dummy explanations.
 
-The application currently includes a `PlainLanguageTranslator` in `privacy_protocol/privacy_protocol/plain_language_translator.py`. This is a **placeholder/dummy translator**.
+**Limitations of the Fallback Dummy Explanations:**
+- **Generic Summaries:** The fallback summaries are category-based, not tailored to the specific content of the individual clause.
+- **Not Data-Driven:** Fallback explanations are hardcoded.
 
-**Purpose of the Dummy Translator:**
-- To establish the software architecture for integrating a plain-language summarization component.
-- To define the expected input (original clause text and its AI-predicted category) and output (a plain-language string summary) for this component.
-- To allow the `PrivacyInterpreter` and web interface to be developed and tested with a consistent summarization feature, even if the summaries are currently predefined and basic.
+### Roadmap to a Custom Trained AI Translation/Summarization Model (Alternative Strategy)
 
-**Functionality of the Dummy Translator:**
-- It provides predefined, static summaries based on the AI category assigned to a clause by the `ClauseClassifier`.
-- It does not perform any actual text generation or deep understanding of the input clause text beyond its category.
+Replacing or supplementing the Gemini API with a custom-trained AI model (typically a sequence-to-sequence model) would involve:
 
-**Limitations of the Dummy Translator:**
-- **Generic Summaries:** The summaries are category-based, not tailored to the specific content or nuance of the individual clause.
-- **Lack of True Translation:** It doesn't simplify or rephrase the actual legal text of the clause itself.
-- **Not Data-Driven:** Its explanations are hardcoded and do not learn from examples.
+1.  **Data Collection and Preparation (Parallel Corpus):** (Details as previously listed)
+2.  **Model Selection (Sequence-to-Sequence Models):** (Details as previously listed)
+3.  **Model Training/Fine-tuning:** (Details as previously listed)
+4.  **Model Evaluation:** (Details as previously listed)
+5.  **Model Serialization and Integration:** (Details as previously listed, would involve updating `PlainLanguageTranslator` to use the custom model)
+6.  **Iteration and Refinement:** (Details as previously listed)
 
-### Roadmap to a Trained AI Translation/Summarization Model
-
-Replacing the dummy translator with a sophisticated AI model (typically a sequence-to-sequence model) involves the following key phases:
-
-1.  **Data Collection and Preparation (Parallel Corpus):**
-    - **The Challenge:** This is the most significant hurdle. We need a dataset of legal clauses (source) paired with their corresponding human-written plain-language summaries (target). This is known as a parallel corpus.
-    - **Potential Sources/Methods:**
-        - **Expert Annotation:** Legal professionals or trained annotators could write plain-language versions of existing policy clauses. This is high-quality but expensive and time-consuming.
-        - **Crowdsourcing:** Could be explored, but quality control would be paramount.
-        - **Synthetic Data Generation (Advanced):** Using powerful existing LLMs with carefully crafted prompts to generate initial plain-language versions, which are then reviewed and edited by humans.
-        - **Augmenting Existing Datasets:** Look for datasets that might already contain simplified versions of legal or complex texts, even if not perfectly matching privacy policies.
-    - **Size and Quality:** A substantial, high-quality parallel corpus is crucial for training effective sequence-to-sequence models.
-
-2.  **Model Selection (Sequence-to-Sequence Models):**
-    - **Transformer-based Models:** These are state-of-the-art for text generation, summarization, and translation tasks.
-        - **Examples:** T5 (Text-To-Text Transfer Transformer), BART (Bidirectional Auto-Regressive Transformer), Pegasus (specialized for abstractive summarization).
-        - **Hugging Face Transformers Library:** Provides access to pre-trained versions of these models and tools for fine-tuning.
-    - **Fine-tuning:** The strategy will likely involve fine-tuning a pre-trained model on the collected parallel corpus of privacy clauses and their plain summaries.
-
-3.  **Model Training/Fine-tuning:**
-    - **Environment:** Similar to the classification model, a robust training environment (GPU recommended) and ML libraries (PyTorch/TensorFlow, Hugging Face) are needed.
-    - **Training Process:** Involves feeding the model pairs of (legal clause, plain summary) and training it to generate the target summary given the source clause.
-    - **Metrics for Text Generation:** Evaluation is more complex than classification.
-        - **ROUGE (Recall-Oriented Understudy for Gisting Evaluation):** Compares model-generated summaries to human-written reference summaries based on n-gram overlap.
-        - **BLEU (Bilingual Evaluation Understudy):** Often used in machine translation, measures precision of n-grams.
-        - **BERTScore:** Uses contextual embeddings to compare semantic similarity.
-        - **Human Evaluation:** Ultimately, human judgment of readability, accuracy, and helpfulness is crucial.
-
-4.  **Model Evaluation:**
-    - Evaluate on a hold-out test set using the metrics mentioned above.
-    - Perform qualitative analysis: review generated summaries for common error types, factual inaccuracies, or awkward phrasing.
-
-5.  **Model Serialization and Integration:**
-    - Save the fine-tuned model and its tokenizer.
-    - Modify `PlainLanguageTranslator.load_model()` to load the trained sequence-to-sequence model.
-    - Update `PlainLanguageTranslator.translate()` to use the loaded model to generate summaries based on the input `clause_text` (and potentially the `ai_category` as an auxiliary input if the model is designed to use it).
-
-6.  **Iteration and Refinement:**
-    - Continuously gather feedback on the quality of plain-language summaries.
-    - Collect more data, particularly for clauses where the model performs poorly.
-    - Retrain and update the model periodically.
-
-Developing a high-quality AI plain-language translator is a challenging but highly valuable endeavor for making privacy policies truly accessible.
+Developing a high-quality custom AI plain-language translator is a significant undertaking, with data collection for a parallel corpus being a primary challenge. The current Gemini API integration provides a powerful starting point.

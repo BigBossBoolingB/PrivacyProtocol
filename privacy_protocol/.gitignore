@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# API Keys and Secrets
+.env
+
+# Other
+.DS_Store
+# ... any other project specific ignores
