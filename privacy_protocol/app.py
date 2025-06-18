@@ -1,12 +1,24 @@
 import os
 from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash
 from privacy_protocol.interpreter import PrivacyInterpreter
 from privacy_protocol.user_preferences import load_user_preferences, save_user_preferences, PREFERENCE_KEYS
-from privacy_protocol.recommendations_engine import RecommendationEngine # Import RecommendationEngine
+from privacy_protocol.recommendations_engine import RecommendationEngine
+from privacy_protocol.llm_services import ACTIVE_LLM_PROVIDER_ENV_VAR, DEFAULT_LLM_PROVIDER, PROVIDER_GEMINI, PROVIDER_OPENAI # Import LLM config vars
 import os
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24) # Needed for flash messages
+
+# --- App Startup Logging ---
+active_provider_name = os.environ.get(ACTIVE_LLM_PROVIDER_ENV_VAR, DEFAULT_LLM_PROVIDER).lower()
+print("--- Privacy Protocol App ---")
+print(f"[CONFIG] Active LLM Provider target: {active_provider_name.upper()}")
+print("  (Actual LLM service used by PlainLanguageTranslator is determined by its internal factory call)")
+print(f"  To change, set {ACTIVE_LLM_PROVIDER_ENV_VAR}={PROVIDER_GEMINI} or {ACTIVE_LLM_PROVIDER_ENV_VAR}={PROVIDER_OPENAI}")
+print(f"  Ensure the corresponding API key (GEMINI_API_KEY or OPENAI_API_KEY) is also set in your environment or .env file.")
+print("---")
+
 
 # Initialize interpreter and load keywords
 interpreter = PrivacyInterpreter()

@@ -7,98 +7,135 @@ import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
-# Module to test
-from privacy_protocol import gemini_api_client # Corrected import
+from privacy_protocol.gemini_api_client import GeminiLLMService, GEMINI_API_KEY_ENV_VAR, DEFAULT_GEMINI_MODEL
 from google.api_core import exceptions as google_exceptions
+import google.generativeai as genai # For mocking genai.configure and genai.GenerativeModel
 
-class TestGeminiApiClient(unittest.TestCase):
+class TestGeminiLLMService(unittest.TestCase):
 
-    @patch.dict(os.environ, {gemini_api_client.GEMINI_API_KEY_ENV_VAR: "test_api_key_123"})
-    def test_get_gemini_api_key_success(self):
-        self.assertEqual(gemini_api_client.get_gemini_api_key(), "test_api_key_123")
+    @patch.dict(os.environ, {GEMINI_API_KEY_ENV_VAR: "test_api_key_123"})
+    @patch('google.generativeai.configure')
+    @patch('google.generativeai.GenerativeModel')
+    def test_init_with_api_key(self, mock_generative_model_class, mock_configure):
+        mock_model_instance = MagicMock()
+        mock_generative_model_class.return_value = mock_model_instance
 
-    @patch.dict(os.environ, {}, clear=True) # Ensure no relevant env var
-    def test_get_gemini_api_key_not_found(self):
+        service = GeminiLLMService()
+
+        self.assertTrue(service.api_key_is_present)
+        self.assertEqual(service.api_key, "test_api_key_123")
+        mock_configure.assert_called_once_with(api_key="test_api_key_123")
+        mock_generative_model_class.assert_called_once_with(DEFAULT_GEMINI_MODEL)
+        self.assertEqual(service.model, mock_model_instance)
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch('google.generativeai.configure')
+    @patch('google.generativeai.GenerativeModel')
+    def test_init_without_api_key(self, mock_generative_model_class, mock_configure):
         # Suppress print warning for this test
-        with patch('sys.stdout', new_callable=MagicMock) as mock_stdout:
-            self.assertIsNone(gemini_api_client.get_gemini_api_key())
-            # Check if warning was printed (optional, but good)
-            # self.assertTrue(any("Gemini API key not found" in call.args[0] for call in mock_stdout.write.call_args_list))
+        with patch('sys.stdout', new_callable=MagicMock):
+            service = GeminiLLMService()
 
-    @patch('google.generativeai.GenerativeModel') # Mock the model itself
-    @patch.dict(os.environ, {gemini_api_client.GEMINI_API_KEY_ENV_VAR: "fake_key"})
-    def test_generate_summary_success(self, mock_generative_model_class):
-        # Configure the mock model instance and its response
+        self.assertFalse(service.api_key_is_present)
+        self.assertIsNone(service.api_key)
+        mock_configure.assert_not_called()
+        mock_generative_model_class.assert_not_called()
+        self.assertIsNone(service.model)
+
+    @patch.dict(os.environ, {GEMINI_API_KEY_ENV_VAR: "test_api_key_123"})
+    def test_is_api_key_available_success(self):
+        service = GeminiLLMService() # __init__ will call it
+        is_available, key = service.is_api_key_available() # Call it again to check return values
+        self.assertTrue(is_available)
+        self.assertEqual(key, "test_api_key_123")
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_is_api_key_available_not_found(self):
+        with patch('sys.stdout', new_callable=MagicMock): # Suppress warning
+            service = GeminiLLMService() # __init__ will call it
+            is_available, key = service.is_api_key_available()
+        self.assertFalse(is_available)
+        self.assertIsNone(key)
+
+    def test_get_api_key_env_var(self):
+        service = GeminiLLMService() # Doesn't matter if key exists for this test
+        self.assertEqual(service.get_api_key_env_var(), GEMINI_API_KEY_ENV_VAR)
+
+    # Tests for generate_summary
+    @patch.dict(os.environ, {GEMINI_API_KEY_ENV_VAR: "fake_key"})
+    @patch('google.generativeai.GenerativeModel') # Mock at class level for __init__
+    def test_generate_summary_success(self, mock_gm_class_for_init):
+        # Mock the model instance that would have been created in __init__
         mock_model_instance = MagicMock()
         mock_response = MagicMock()
-        # This matches the simpler `response.text` access path
-        mock_response.text = "This is a successful Gemini summary."
-        mock_response.parts = [MagicMock()] # Ensure parts exist to pass initial check
-        mock_response.prompt_feedback = None # No blocking
+        mock_response.text = "Successful summary."
+        mock_response.parts = [MagicMock()]
+        mock_response.prompt_feedback = None
         mock_model_instance.generate_content.return_value = mock_response
-        mock_generative_model_class.return_value = mock_model_instance # When GenerativeModel() is called
 
-        summary = gemini_api_client.generate_plain_language_summary_with_gemini(
-            api_key="fake_key",
-            clause_text="Some clause text.",
-            ai_category="Data Collection"
-        )
-        self.assertEqual(summary, "This is a successful Gemini summary.")
-        # Check that genai.configure was called (optional, requires patching genai.configure)
-        # Check that the prompt was constructed as expected (more involved, check mock_model_instance.generate_content.call_args)
+        # Patch the genai.GenerativeModel call within __init__
+        with patch('google.generativeai.GenerativeModel', return_value=mock_model_instance) as mock_gm_class:
+            service = GeminiLLMService() # Re-init to use the fully mocked model
+            service.model = mock_model_instance # Ensure the instance uses our mock model
+
+        self.assertTrue(service.api_key_is_present) # Should be true due to env var patch
+
+        summary = service.generate_summary("Clause text.", "Data Collection")
+        self.assertEqual(summary, "Successful summary.")
+        mock_model_instance.generate_content.assert_called_once()
         args, _ = mock_model_instance.generate_content.call_args
-        self.assertIn("Clause to explain:", args[0])
-        self.assertIn("Some clause text.", args[0])
+        self.assertIn("Clause text.", args[0])
         self.assertIn("Data Collection", args[0])
 
-    @patch('google.generativeai.GenerativeModel')
-    @patch.dict(os.environ, {gemini_api_client.GEMINI_API_KEY_ENV_VAR: "fake_key"})
-    def test_generate_summary_api_error(self, mock_generative_model_class):
-        mock_model_instance = MagicMock()
-        mock_model_instance.generate_content.side_effect = google_exceptions.GoogleAPIError("API Error")
-        mock_generative_model_class.return_value = mock_model_instance
 
-        summary = gemini_api_client.generate_plain_language_summary_with_gemini(
-            api_key="fake_key",
-            clause_text="Test clause.",
-            ai_category="Security"
-        )
-        self.assertIsNone(summary)
+    @patch.dict(os.environ, {GEMINI_API_KEY_ENV_VAR: "fake_key"})
+    def test_generate_summary_api_error(self):
+        with patch('google.generativeai.GenerativeModel') as mock_gm_class:
+            mock_model_instance = MagicMock()
+            mock_model_instance.generate_content.side_effect = google_exceptions.GoogleAPIError("API Error")
+            mock_gm_class.return_value = mock_model_instance
 
-    def test_generate_summary_no_api_key(self):
-        summary = gemini_api_client.generate_plain_language_summary_with_gemini(
-            api_key=None,
-            clause_text="Test clause.",
-            ai_category="User Rights"
-        )
-        self.assertIsNone(summary)
+            service = GeminiLLMService()
+            service.model = mock_model_instance # Ensure this instance uses the mock
 
+            summary = service.generate_summary("Test clause.", "Security")
+            self.assertIn("Error calling Gemini API: GoogleAPIError", summary)
+
+
+    @patch.dict(os.environ, {}, clear=True) # No API Key
+    def test_generate_summary_no_api_key_configured(self):
+        with patch('sys.stdout', new_callable=MagicMock): # Suppress warning
+            service = GeminiLLMService()
+        self.assertFalse(service.api_key_is_present)
+        summary = service.generate_summary("Test clause.", "User Rights")
+        self.assertEqual(summary, "LLM service not configured: API key for Gemini is missing or model failed to load.")
+
+    @patch.dict(os.environ, {GEMINI_API_KEY_ENV_VAR: "fake_key"})
     def test_generate_summary_empty_clause_text(self):
-        summary = gemini_api_client.generate_plain_language_summary_with_gemini(
-            api_key="fake_key",
-            clause_text="",
-            ai_category="Other"
-        )
+        with patch('google.generativeai.GenerativeModel'): # Mock to allow init
+            service = GeminiLLMService()
+        summary = service.generate_summary("", "Other")
         self.assertEqual(summary, "The provided clause text was empty.")
+        summary_whitespace = service.generate_summary("   ", "Other")
+        self.assertEqual(summary_whitespace, "The provided clause text was empty.")
 
-    @patch('google.generativeai.GenerativeModel')
-    @patch.dict(os.environ, {gemini_api_client.GEMINI_API_KEY_ENV_VAR: "fake_key"})
-    def test_generate_summary_prompt_blocked(self, mock_generative_model_class):
-        mock_model_instance = MagicMock()
-        mock_response = MagicMock()
-        mock_response.parts = [] # No parts if blocked this way
-        mock_response.prompt_feedback = MagicMock()
-        mock_response.prompt_feedback.block_reason = "SAFETY"
-        mock_model_instance.generate_content.return_value = mock_response
-        mock_generative_model_class.return_value = mock_model_instance
 
-        summary = gemini_api_client.generate_plain_language_summary_with_gemini(
-            api_key="fake_key",
-            clause_text="A potentially problematic clause.",
-            ai_category="Other"
-        )
-        self.assertIn("Could not generate summary due to safety settings", summary)
-        self.assertIn("(Reason: SAFETY)", summary)
+    @patch.dict(os.environ, {GEMINI_API_KEY_ENV_VAR: "fake_key"})
+    def test_generate_summary_prompt_blocked(self):
+        with patch('google.generativeai.GenerativeModel') as mock_gm_class:
+            mock_model_instance = MagicMock()
+            mock_response = MagicMock()
+            mock_response.parts = []
+            mock_response.prompt_feedback = MagicMock()
+            mock_response.prompt_feedback.block_reason = "SAFETY"
+            mock_model_instance.generate_content.return_value = mock_response
+            mock_gm_class.return_value = mock_model_instance
+
+            service = GeminiLLMService()
+            service.model = mock_model_instance
+
+            summary = service.generate_summary("A problematic clause.", "Other")
+            self.assertIn("Could not generate summary due to safety settings (Reason: SAFETY)", summary)
 
 if __name__ == '__main__':
     unittest.main()

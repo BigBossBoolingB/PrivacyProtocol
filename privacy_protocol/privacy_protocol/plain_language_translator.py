@@ -1,10 +1,9 @@
 from .clause_categories import CLAUSE_CATEGORIES
-from .gemini_api_client import generate_plain_language_summary_with_gemini, get_gemini_api_key
+from .llm_services import get_llm_service # Import the factory
 
 class PlainLanguageTranslator:
     def __init__(self):
-        self.api_key = get_gemini_api_key()
-        self.api_key_available = True if self.api_key else False
+        self.llm_service = get_llm_service() # Get configured LLM service instance
 
         self.dummy_explanations = {
             'Data Collection': "This section likely describes what personal information the company collects from you and how.",
@@ -25,71 +24,75 @@ class PlainLanguageTranslator:
         self.load_model()
 
     def load_model(self):
-        if self.api_key_available:
-            print("PlainLanguageTranslator: Using Gemini API for summaries.")
+        service_name = type(self.llm_service).__name__ if self.llm_service else 'None configured'
+        print(f"PlainLanguageTranslator: Attempting to use LLM service: {service_name}.")
+        if self.llm_service and self.llm_service.is_api_key_available()[0]:
+            print(f"  LLM Service '{service_name}' API Key is available.")
         else:
-            print("PlainLanguageTranslator: Gemini API key not available. Using fallback summaries.")
+            status_detail = "API Key not available or service client init failed." if self.llm_service else "No service configured."
+            print(f"  LLM Service '{service_name}' - {status_detail} Will use fallbacks.")
+
 
     def translate(self, clause_text: str, ai_category: str) -> str:
         if not isinstance(ai_category, str):
             ai_category = 'Other'
 
-        if not self.api_key_available:
-            # print(f"Debug: Fallback due to no API key. Category: {ai_category}")
+        if not clause_text or not clause_text.strip():
+            print("PlainLanguageTranslator: Empty clause text provided, using default summary for category.")
             return self.dummy_explanations.get(ai_category, self.default_summary)
 
-        # The gemini_api_client's generate_plain_language_summary_with_gemini already handles empty clause_text
-        # and returns a specific message "The provided clause text was empty."
-        # So, we call it directly.
+        key_available = self.llm_service.is_api_key_available()[0] if self.llm_service else False
+        if not self.llm_service or not key_available:
+            # This print can be verbose if called per sentence, consider removing or logging to debug level
+            # service_type_name = type(self.llm_service).__name__ if self.llm_service else 'N/A'
+            # print(f"LLM Service ({service_type_name}) not available or API key missing, using fallback for '{ai_category}'.")
+            return self.dummy_explanations.get(ai_category, self.default_summary)
 
-        api_summary = generate_plain_language_summary_with_gemini(self.api_key, clause_text, ai_category)
+        # Attempt to get summary from the configured LLM service
+        api_summary = self.llm_service.generate_summary(clause_text, ai_category)
 
-        if api_summary is not None:
-            client_error_prefixes_or_exact_matches = [
-                "Could not generate summary due to safety settings",
-                "The provided clause text was empty.", # Exact match from client for empty clause
-                # "Error calling Gemini API" # This would typically result in api_summary being None
-                # "Gemini API key is missing" # This would also typically result in api_summary being None
-            ]
-            is_client_specific_message = False
-            if api_summary == "The provided clause text was empty.": # Exact match check
-                is_client_specific_message = True
-            else: # Prefix checks for others
-                for prefix in client_error_prefixes_or_exact_matches:
-                    if api_summary.startswith(prefix):
-                        is_client_specific_message = True
-                        break
-
-            if is_client_specific_message:
-                # Pass through specific messages from the client (like "empty text" or "safety settings")
-                return api_summary
-            elif api_summary.strip(): # Ensure it's not empty string after strip, and not an error handled above
-                return api_summary  # Successfully got a usable summary from Gemini
-            else:
-                # API returned an empty string or something unexpected that wasn't an error but isn't usable
-                print(f"Gemini API client returned an empty or unusable summary: '{api_summary}'. Falling back for category {ai_category}.")
+        if api_summary is not None and api_summary.strip():
+            # LLMService concrete implementations are expected to return:
+            # 1. A valid summary string.
+            # 2. A specific error message string (e.g., "Could not generate...", "The provided clause text was empty.").
+            # 3. None (if a low-level/unexpected error occurred).
+            # The client specific error messages like "The provided clause text was empty." or "Could not generate..." are passed through.
+            return api_summary
         else:
-            # API call itself failed (e.g., network, internal API key issue passed to client, etc.), api_summary is None
-            print(f"Gemini API call failed (returned None). Falling back for category {ai_category}.")
-
-        # Fallback Logic: Use dummy explanations or default summary
-        return self.dummy_explanations.get(ai_category, self.default_summary)
+            # Service returned None or an empty/whitespace string.
+            service_type_name = type(self.llm_service).__name__ # Should be safe due to earlier checks
+            print(f"LLM service {service_type_name} returned None or empty summary. Falling back for category {ai_category}.")
+            return self.dummy_explanations.get(ai_category, self.default_summary)
 
 if __name__ == '__main__':
-    translator = PlainLanguageTranslator()
-    # The load_model print message is now part of __init__ calling load_model
-    print(f"API Key Available for Translator: {translator.api_key_available}")
+    # __main__ will now use the factory to get the default LLM (Gemini) or one specified by ENV VAR
+    # It will also show whether the respective API key was found.
+    print("--- PlainLanguageTranslator (with LLM Service Factory) ---")
+    translator = PlainLanguageTranslator() # load_model() is called in __init__
 
     test_clauses_with_categories = [
-        ("We collect your name and email address.", "Data Collection"),
-        ("We may share your information with trusted third-party service providers.", "Data Sharing"),
+        ("We collect your name and email address for account setup.", "Data Collection"),
+        ("We may share your information with trusted third-party service providers for analytics only.", "Data Sharing"),
         ("This is a clause with no specific AI category match for dummy fallbacks.", "New Hypothetical Category"),
-        ("", "Data Collection") # Empty clause text test
+        ("", "Data Collection"), # Empty clause text test
+        ("Another clause about cookies.", "Cookies and Tracking Technologies")
     ]
 
-    print("\n--- PlainLanguageTranslator (potentially with Gemini API) Output ---")
+    print("\n--- Translating Sample Clauses ---")
     for clause, category in test_clauses_with_categories:
-        print(f"\nOriginal Clause: '{clause}'") # Added quotes for clarity
+        print(f"\nOriginal Clause: '{clause}'")
         print(f"AI Category: {category}")
         summary = translator.translate(clause, category)
         print(f"Plain Summary: {summary}")
+
+    # Example to test a specific provider if needed, by setting ENV VAR before running,
+    # or by directly calling get_llm_service with an override (though translator uses default from factory)
+    # print("\n--- Testing with specific provider (e.g. OpenAI, if key is set) ---")
+    # from privacy_protocol.llm_services import llm_service_factory
+    # os.environ[llm_service_factory.ACTIVE_LLM_PROVIDER_ENV_VAR] = llm_service_factory.PROVIDER_OPENAI
+    # translator_openai = PlainLanguageTranslator() # Will pick up OpenAI via factory due to ENV VAR
+    # print(f"API Key Available for OpenAI Translator: {translator_openai.llm_service.is_api_key_available()[0] if translator_openai.llm_service else False}")
+    # summary_openai = translator_openai.translate("We sell your data with consent.", "Data Selling")
+    # print(f"OpenAI Summary for 'Data Selling': {summary_openai}")
+    # # Clean up env var if set only for test
+    # del os.environ[llm_service_factory.ACTIVE_LLM_PROVIDER_ENV_VAR]
