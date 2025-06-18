@@ -11,7 +11,7 @@ sys.path.insert(0, project_root)
 
 from app import app
 from privacy_protocol.interpreter import PrivacyInterpreter
-from privacy_protocol.plain_language_translator import PlainLanguageTranslator # For re-init
+from privacy_protocol.plain_language_translator import PlainLanguageTranslator
 from privacy_protocol.user_preferences import (
     get_default_preferences,
     CURRENT_PREFERENCES_PATH,
@@ -23,16 +23,19 @@ from privacy_protocol.llm_services import (
     ACTIVE_LLM_PROVIDER_ENV_VAR,
     PROVIDER_GEMINI,
     PROVIDER_OPENAI,
-    PROVIDER_ANTHROPIC
+    PROVIDER_ANTHROPIC,
+    PROVIDER_AZURE_OPENAI # Added
 )
 
 GEMINI_SERVICE_GENERATE_SUMMARY_PATH = 'privacy_protocol.llm_services.gemini_api_client.GeminiLLMService.generate_summary'
 OPENAI_SERVICE_GENERATE_SUMMARY_PATH = 'privacy_protocol.llm_services.openai_api_client.OpenAILLMService.generate_summary'
 ANTHROPIC_SERVICE_GENERATE_SUMMARY_PATH = 'privacy_protocol.llm_services.anthropic_api_client.AnthropicLLMService.generate_summary'
+AZURE_OPENAI_SERVICE_GENERATE_SUMMARY_PATH = 'privacy_protocol.llm_services.azure_openai_client.AzureOpenAILLMService.generate_summary' # Added
 
 GEMINI_SERVICE_KEY_CHECK_PATH = 'privacy_protocol.llm_services.gemini_api_client.GeminiLLMService.is_api_key_available'
 OPENAI_SERVICE_KEY_CHECK_PATH = 'privacy_protocol.llm_services.openai_api_client.OpenAILLMService.is_api_key_available'
 ANTHROPIC_SERVICE_KEY_CHECK_PATH = 'privacy_protocol.llm_services.anthropic_api_client.AnthropicLLMService.is_api_key_available'
+AZURE_OPENAI_SERVICE_KEY_CHECK_PATH = 'privacy_protocol.llm_services.azure_openai_client.AzureOpenAILLMService.is_api_key_available' # Added
 
 
 SPACY_MODEL_AVAILABLE = False
@@ -52,9 +55,8 @@ class TestWebApp(unittest.TestCase):
         app.config['WTF_CSRF_ENABLED'] = False
         self.client = app.test_client()
 
-        # Re-initialize interpreter for each test. This also re-initializes PlainLanguageTranslator,
-        # which will call get_llm_service() allowing env var patches to take effect.
-        with patch('sys.stdout', new_callable=MagicMock): # Suppress all init prints
+        with patch('sys.stdout', new_callable=MagicMock):
+            # Re-initialize interpreter and its components to pick up patched env vars via factory
             app.interpreter = PrivacyInterpreter()
 
         keywords_path = os.path.join(os.path.dirname(app.root_path), 'data', 'keywords.json')
@@ -74,11 +76,13 @@ class TestWebApp(unittest.TestCase):
 
         app.interpreter.load_user_preferences(default_prefs_content.copy())
 
+
     def tearDown(self):
         if os.path.exists(USER_DATA_DIR):
             shutil.rmtree(USER_DATA_DIR)
         if ACTIVE_LLM_PROVIDER_ENV_VAR in os.environ:
             del os.environ[ACTIVE_LLM_PROVIDER_ENV_VAR]
+
 
     def _get_current_preferences_from_file(self):
         if os.path.exists(CURRENT_PREFERENCES_PATH):
@@ -96,10 +100,8 @@ class TestWebApp(unittest.TestCase):
     @patch(GEMINI_SERVICE_GENERATE_SUMMARY_PATH)
     @patch(GEMINI_SERVICE_KEY_CHECK_PATH, return_value=(False, None))
     def test_analyze_page_empty_input(self, mock_gemini_key_check, mock_gemini_summary_gen):
-        # Re-initialize interpreter after @patch.dict to ensure factory picks up env var
-        with patch('sys.stdout', new_callable=MagicMock):
+        with patch('sys.stdout', new_callable=MagicMock): # Suppress re-init prints
             app.interpreter = PrivacyInterpreter()
-            # Need to reload keywords and prefs for the new interpreter instance
             keywords_path = os.path.join(os.path.dirname(app.root_path), 'data', 'keywords.json')
             if os.path.exists(keywords_path): app.interpreter.load_keywords_from_path(keywords_path)
             app.interpreter.load_user_preferences(get_default_preferences().copy())
@@ -118,7 +120,7 @@ class TestWebApp(unittest.TestCase):
         mock_gemini_summary_gen.return_value = expected_summary
 
         with patch('sys.stdout', new_callable=MagicMock):
-            app.interpreter = PrivacyInterpreter()
+            app.interpreter = PrivacyInterpreter() # Re-init to pick up patched env for factory
             keywords_path = os.path.join(os.path.dirname(app.root_path), 'data', 'keywords.json')
             if os.path.exists(keywords_path): app.interpreter.load_keywords_from_path(keywords_path)
             app.interpreter.load_user_preferences(get_default_preferences().copy())
@@ -181,6 +183,30 @@ class TestWebApp(unittest.TestCase):
         self.assertIn(b"Analysis Results", response.data)
         self.assertIn(bytes(expected_summary, 'utf-8'), response.data)
         mock_anthropic_summary_gen.assert_called_once()
+        self.assertIn(f'<p class="plain-summary"><strong>Plain Language Summary:</strong> {expected_summary}</p>'.encode('utf-8'), response.data)
+
+    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available for this test.")
+    @patch.dict(os.environ, {ACTIVE_LLM_PROVIDER_ENV_VAR: PROVIDER_AZURE_OPENAI}, clear=True)
+    @patch(AZURE_OPENAI_SERVICE_KEY_CHECK_PATH, return_value=(True, 'fake_azure_key', 'fake_endpoint', 'fake_deployment', 'fake_api_version'))
+    @patch(AZURE_OPENAI_SERVICE_GENERATE_SUMMARY_PATH)
+    def test_analyze_page_with_azure_openai_provider_mocked_summary(self, mock_azure_summary_gen, mock_azure_key_check):
+        expected_summary = "Mocked Azure OpenAI Summary for display via app."
+        mock_azure_summary_gen.return_value = expected_summary
+
+        with patch('sys.stdout', new_callable=MagicMock):
+            app.interpreter = PrivacyInterpreter()
+            keywords_path = os.path.join(os.path.dirname(app.root_path), 'data', 'keywords.json')
+            if os.path.exists(keywords_path): app.interpreter.load_keywords_from_path(keywords_path)
+            app.interpreter.load_user_preferences(get_default_preferences().copy())
+
+        policy_text = "This policy is about international data transfers using Azure OpenAI."
+        app.interpreter.load_user_preferences(get_default_preferences())
+
+        response = self.client.post('/analyze', data={'policy_text': policy_text})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Analysis Results", response.data)
+        self.assertIn(bytes(expected_summary, 'utf-8'), response.data)
+        mock_azure_summary_gen.assert_called_once()
         self.assertIn(f'<p class="plain-summary"><strong>Plain Language Summary:</strong> {expected_summary}</p>'.encode('utf-8'), response.data)
 
 

@@ -1,6 +1,6 @@
 # Privacy Protocol
 
-Privacy Protocol is an application designed to analyze privacy policy text. It identifies key clauses, categorizes them using a (currently rule-based, planned for ML) AI classifier, generates plain-language summaries using a configurable LLM provider (Google Gemini, OpenAI GPT, or Anthropic Claude), and assesses potential privacy risks based on user preferences. Users can interact with the analyzer via a web interface.
+Privacy Protocol is an application designed to analyze privacy policy text. It identifies key clauses, categorizes them using a (currently rule-based, planned for ML) AI classifier, generates plain-language summaries using a configurable LLM provider (Google Gemini, OpenAI GPT, Anthropic Claude, or Azure OpenAI), and assesses potential privacy risks based on user preferences. Users can interact with the analyzer via a web interface.
 
 ## Features (Current & Planned)
 
@@ -8,7 +8,7 @@ Privacy Protocol is an application designed to analyze privacy policy text. It i
 -   **Sentence Segmentation:** Uses spaCy to break down the policy into individual sentences/clauses.
 -   **AI-Powered Clause Categorization:** Each clause is assigned a category (e.g., Data Collection, Data Sharing). (Currently rule-based, see `ML_MODEL_README.md`).
 -   **Keyword Spotting:** Identifies specific keywords within clauses and provides explanations.
--   **Configurable Plain Language Summaries:** Generates easy-to-understand summaries for clauses using a choice of LLM providers (Gemini, OpenAI, Anthropic). Requires an API key for the chosen provider. Falls back to predefined explanations if the selected API is unavailable.
+-   **Configurable Plain Language Summaries:** Generates easy-to-understand summaries for clauses using a choice of LLM providers. Requires an API key for the chosen provider. Falls back to predefined explanations if the selected API is unavailable.
 -   **User Preference Management:** Allows users to set their privacy preferences (e.g., allowance for data selling, ad tracking).
 -   **Personalized Risk Assessment:** Calculates a risk score and highlights clauses of high, medium, or low concern based on user preferences.
 -   **Actionable Recommendations:** Provides suggestions based on the analysis and user concern levels.
@@ -60,6 +60,13 @@ Privacy Protocol is an application designed to analyze privacy policy text. It i
         ```bash
         export ANTHROPIC_API_KEY="your_anthropic_api_key_here"
         ```
+    -   **Microsoft Azure OpenAI Service:** Set the following environment variables:
+        ```bash
+        export AZURE_OPENAI_API_KEY="your_azure_openai_api_key"
+        export AZURE_OPENAI_ENDPOINT="your_azure_openai_endpoint_url"
+        export AZURE_OPENAI_DEPLOYMENT_NAME="your_azure_deployment_name"
+        export AZURE_OPENAI_API_VERSION="your_api_version_e.g_2023-07-01-preview"
+        ```
     **Important:** If you create a `.env` file, ensure it is listed in `.gitignore` (it is by default) to prevent accidentally committing your API keys. If an API key for the selected provider is not configured, the plain language summary feature will fall back to predefined dummy explanations.
 
 6.  **Selecting the Active LLM Provider:**
@@ -67,10 +74,11 @@ Privacy Protocol is an application designed to analyze privacy policy text. It i
     -   `gemini` (Default)
     -   `openai`
     -   `anthropic`
+    -   `azure_openai`
 
     Example:
     ```bash
-    export ACTIVE_LLM_PROVIDER="openai"
+    export ACTIVE_LLM_PROVIDER="azure_openai"
     ```
     If not set, the application defaults to Gemini. The application will indicate the active LLM provider target on startup.
 
@@ -112,6 +120,7 @@ This command should be run from the project root directory (`privacy_protocol/`)
     - `gemini_api_client.py`: Gemini client.
     - `openai_api_client.py`: OpenAI client.
     - `anthropic_api_client.py`: Anthropic client.
+    - `azure_openai_client.py`: Azure OpenAI client. # Added
     - `llm_service_factory.py`: Factory to select and instantiate an LLM service.
   - `clause_categories.py`, `recommendations_data.py`: Data modules.
 - `templates/`: HTML templates for the web interface.

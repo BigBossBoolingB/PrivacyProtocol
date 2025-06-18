@@ -10,6 +10,7 @@ from privacy_protocol.llm_services import llm_service_factory
 from privacy_protocol.llm_services.gemini_api_client import GeminiLLMService
 from privacy_protocol.llm_services.openai_api_client import OpenAILLMService
 from privacy_protocol.llm_services.anthropic_api_client import AnthropicLLMService
+from privacy_protocol.llm_services.azure_openai_client import AzureOpenAILLMService
 
 class TestLLMServiceFactory(unittest.TestCase):
 
@@ -24,7 +25,7 @@ class TestLLMServiceFactory(unittest.TestCase):
             with patch('sys.stdout', new_callable=MagicMock):
                 service = llm_service_factory.get_llm_service()
 
-        self.assertIs(service, mock_instance) # Use assertIs for specific mock instance
+        self.assertIs(service, mock_instance)
         mock_constructor.assert_called_once()
 
     @patch.dict(os.environ, {llm_service_factory.ACTIVE_LLM_PROVIDER_ENV_VAR: llm_service_factory.PROVIDER_OPENAI})
@@ -55,6 +56,20 @@ class TestLLMServiceFactory(unittest.TestCase):
         self.assertIs(service, mock_instance)
         mock_constructor.assert_called_once()
 
+    @patch.dict(os.environ, {llm_service_factory.ACTIVE_LLM_PROVIDER_ENV_VAR: llm_service_factory.PROVIDER_AZURE_OPENAI})
+    def test_get_llm_service_azure_openai_from_env(self):
+        mock_constructor = MagicMock(spec=AzureOpenAILLMService)
+        mock_instance = MagicMock(spec=AzureOpenAILLMService)
+        mock_instance.key_available = True
+        mock_constructor.return_value = mock_instance
+
+        with patch.dict(llm_service_factory.PROVIDER_MAP, {llm_service_factory.PROVIDER_AZURE_OPENAI: mock_constructor}):
+            with patch('sys.stdout', new_callable=MagicMock):
+                service = llm_service_factory.get_llm_service()
+
+        self.assertIs(service, mock_instance)
+        mock_constructor.assert_called_once()
+
     @patch.dict(os.environ, {}, clear=True)
     def test_get_llm_service_default_provider_gemini(self):
         self.assertEqual(llm_service_factory.DEFAULT_LLM_PROVIDER, llm_service_factory.PROVIDER_GEMINI)
@@ -72,7 +87,7 @@ class TestLLMServiceFactory(unittest.TestCase):
         mock_constructor.assert_called_once()
 
     @patch.dict(os.environ, {llm_service_factory.ACTIVE_LLM_PROVIDER_ENV_VAR: llm_service_factory.PROVIDER_GEMINI})
-    def test_get_llm_service_override_env_with_openai(self, mock_env_gemini_is_default_for_this_test_run_only = None): # mock_env_gemini is just to show env is set
+    def test_get_llm_service_override_env_with_openai(self):
         mock_constructor = MagicMock(spec=OpenAILLMService)
         mock_instance = MagicMock(spec=OpenAILLMService)
         mock_instance.key_available = True
@@ -86,7 +101,7 @@ class TestLLMServiceFactory(unittest.TestCase):
         mock_constructor.assert_called_once()
 
     @patch.dict(os.environ, {llm_service_factory.ACTIVE_LLM_PROVIDER_ENV_VAR: llm_service_factory.PROVIDER_GEMINI})
-    def test_get_llm_service_override_env_with_anthropic(self, mock_env_gemini_is_default = None):
+    def test_get_llm_service_override_env_with_anthropic(self):
         mock_constructor = MagicMock(spec=AnthropicLLMService)
         mock_instance = MagicMock(spec=AnthropicLLMService)
         mock_instance.key_available = True
@@ -95,6 +110,20 @@ class TestLLMServiceFactory(unittest.TestCase):
         with patch.dict(llm_service_factory.PROVIDER_MAP, {llm_service_factory.PROVIDER_ANTHROPIC: mock_constructor}):
             with patch('sys.stdout', new_callable=MagicMock):
                 service = llm_service_factory.get_llm_service(provider_name_override=llm_service_factory.PROVIDER_ANTHROPIC)
+
+        self.assertIs(service, mock_instance)
+        mock_constructor.assert_called_once()
+
+    @patch.dict(os.environ, {llm_service_factory.ACTIVE_LLM_PROVIDER_ENV_VAR: llm_service_factory.PROVIDER_GEMINI})
+    def test_get_llm_service_override_env_with_azure_openai(self):
+        mock_constructor = MagicMock(spec=AzureOpenAILLMService)
+        mock_instance = MagicMock(spec=AzureOpenAILLMService)
+        mock_instance.key_available = True
+        mock_constructor.return_value = mock_instance
+
+        with patch.dict(llm_service_factory.PROVIDER_MAP, {llm_service_factory.PROVIDER_AZURE_OPENAI: mock_constructor}):
+            with patch('sys.stdout', new_callable=MagicMock):
+                service = llm_service_factory.get_llm_service(provider_name_override=llm_service_factory.PROVIDER_AZURE_OPENAI)
 
         self.assertIs(service, mock_instance)
         mock_constructor.assert_called_once()

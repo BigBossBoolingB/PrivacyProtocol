@@ -4,13 +4,13 @@ This document outlines the path from the current placeholder (dummy) AI clause c
 
 ## External API Integrations
 
-This section details the use of external AI services to enhance the capabilities of Privacy Protocol. The application uses an `LLMServiceFactory` to select and instantiate a configured LLM provider based on the `ACTIVE_LLM_PROVIDER` environment variable. Supported providers are "gemini", "openai", and "anthropic".
+This section details the use of external AI services to enhance the capabilities of Privacy Protocol. The application uses an `LLMServiceFactory` to select and instantiate a configured LLM provider based on the `ACTIVE_LLM_PROVIDER` environment variable. Supported providers are "gemini", "openai", "anthropic", and "azure_openai".
 
 ### Gemini Pro API for Plain Language Translation
 - **Service Used:** Google's Gemini Pro API.
 - **Purpose:** To translate complex legal jargon from policy clauses into simple, clear terms.
 - **API Key Configuration:**
-    - Requires an API key from Google AI Studio (or Google Cloud Vertex AI).
+    - Requires an API key from Google AI Studio.
     - Set as an environment variable named `GEMINI_API_KEY`.
     - Refer to `.env.example` and the main `README.md` for setup instructions.
 - **Client Module:** `privacy_protocol/privacy_protocol/llm_services/gemini_api_client.py` (as `GeminiLLMService`).
@@ -35,6 +35,16 @@ This section details the use of external AI services to enhance the capabilities
     - Refer to `.env.example` and the main `README.md`.
 - **Client Module:** `privacy_protocol/privacy_protocol/llm_services/anthropic_api_client.py` (as `AnthropicLLMService`).
 - **Fallback:** Uses dummy explanations if the API key is missing or calls fail.
+
+### Microsoft Azure OpenAI Service
+- **Service Used:** OpenAI models deployed via Microsoft Azure OpenAI Service.
+- **Purpose:** Enterprise-grade alternative for generating plain-language summaries using OpenAI models.
+- **API Key Configuration:**
+    - Requires an API key, endpoint URL, deployment name, and API version from an Azure OpenAI resource.
+    - Set as environment variables: `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT_NAME`, `AZURE_OPENAI_API_VERSION`.
+    - Refer to `.env.example` and the main `README.md`.
+- **Client Module:** `privacy_protocol/privacy_protocol/llm_services/azure_openai_client.py` (as `AzureOpenAILLMService`).
+- **Fallback:** Uses dummy explanations if configurations are missing or calls fail.
 
 ## Clause Classification: From Dummy to Trained Model
 
@@ -70,15 +80,15 @@ Replacing the dummy classifier with a trained ML model involves several key phas
 This roadmap provides a high-level guide for developing a robust AI-powered clause classifier.
 
 ## Plain-Language Translation: Strategy and Development
-*(Note: The primary approach for plain-language translation is now through configurable external LLM APIs (Gemini, OpenAI, Anthropic) managed by the `LLMServiceFactory` and utilized by `PlainLanguageTranslator`. The original notes below on training a custom sequence-to-sequence model are kept for long-term reference or as an alternative strategy if direct API use becomes infeasible or if highly specialized custom fine-tuning proves necessary beyond what current APIs offer.)*
+*(Note: The primary approach for plain-language translation is now through configurable external LLM APIs (Gemini, OpenAI, Anthropic, Azure OpenAI) managed by the `LLMServiceFactory` and utilized by `PlainLanguageTranslator`. The original notes below on training a custom sequence-to-sequence model are kept for long-term reference or as an alternative strategy if direct API use becomes infeasible or if highly specialized custom fine-tuning proves necessary beyond what current APIs offer.)*
 
 ### Current State: `PlainLanguageTranslator` with External API Integration
 
 The application includes a `PlainLanguageTranslator` in `privacy_protocol/privacy_protocol/plain_language_translator.py`.
 **Functionality:**
-- This component utilizes the `LLMServiceFactory` to obtain a configured LLM service instance (e.g., `GeminiLLMService`, `OpenAILLMService`, `AnthropicLLMService`).
+- This component utilizes the `LLMServiceFactory` to obtain a configured LLM service instance (e.g., `GeminiLLMService`, `OpenAILLMService`, `AnthropicLLMService`, `AzureOpenAILLMService`).
 - It attempts to call the selected LLM service to generate plain-language summaries for input clauses. The AI category of the clause is used to provide context to the generative model via a structured prompt.
-- If the selected LLM service's API key is not configured, or if an API call fails, the translator falls back to providing predefined, category-based dummy explanations.
+- If the selected LLM service's API key (or all necessary configurations for Azure) is not configured, or if an API call fails, the translator falls back to providing predefined, category-based dummy explanations.
 
 **Limitations of the Fallback Dummy Explanations:**
 - **Generic Summaries:** The fallback summaries are category-based, not tailored to the specific content of the individual clause.
