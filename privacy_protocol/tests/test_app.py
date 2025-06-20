@@ -6,11 +6,15 @@ import json
 import shutil
 import re
 import time # For diff testing
+from datetime import datetime, timezone # For dashboard tests
+from flask import url_for # For dashboard tests
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
 from app import app
+from privacy_protocol.privacy_protocol.dashboard_models import ServiceProfile # For dashboard tests
+from privacy_protocol.privacy_protocol import dashboard_data_manager # For dashboard tests
 from privacy_protocol.interpreter import PrivacyInterpreter
 from privacy_protocol.plain_language_translator import PlainLanguageTranslator
 from privacy_protocol.user_preferences import (
@@ -91,12 +95,31 @@ class TestWebApp(unittest.TestCase):
             shutil.rmtree(POLICY_HISTORY_DIR)
         os.makedirs(POLICY_HISTORY_DIR, exist_ok=True)
 
+        # Add cleanup for dashboard data
+        self.user_data_dir_for_dashboard = dashboard_data_manager.USER_DATA_DIR # Renamed to avoid conflict with existing USER_DATA_DIR from preferences
+        self.service_profiles_path = dashboard_data_manager.SERVICE_PROFILES_PATH
+        if os.path.exists(self.service_profiles_path):
+            os.remove(self.service_profiles_path)
+        # Ensure user_data_dir exists for dashboard_data_manager if it's different from preferences' USER_DATA_DIR
+        # Note: dashboard_data_manager.USER_DATA_DIR is currently derived to be the same as preferences' USER_DATA_DIR
+        # So, the os.makedirs(USER_DATA_DIR) above already covers this.
+        # If they were different, we'd need: os.makedirs(self.user_data_dir_for_dashboard, exist_ok=True)
+
 
     def tearDown(self):
-        if os.path.exists(USER_DATA_DIR):
+        if os.path.exists(USER_DATA_DIR): # This is preferences USER_DATA_DIR
             shutil.rmtree(USER_DATA_DIR)
         if os.path.exists(POLICY_HISTORY_DIR):
             shutil.rmtree(POLICY_HISTORY_DIR)
+
+        # Explicitly remove service_profiles.json if it exists, USER_DATA_DIR might have other things like default_preferences.json
+        if os.path.exists(self.service_profiles_path):
+             os.remove(self.service_profiles_path)
+        # If self.user_data_dir_for_dashboard was different and created by setup, consider removing it:
+        # For example, if os.path.exists(self.user_data_dir_for_dashboard) and not os.listdir(self.user_data_dir_for_dashboard):
+        #    os.rmdir(self.user_data_dir_for_dashboard)
+        # But given USER_DATA_DIR is the same for both, rmtree on USER_DATA_DIR handles it.
+
         if ACTIVE_LLM_PROVIDER_ENV_VAR in os.environ:
             del os.environ[ACTIVE_LLM_PROVIDER_ENV_VAR]
 
@@ -461,6 +484,70 @@ class TestWebApp(unittest.TestCase):
 
         select_block_for_analytics_after_post = response.data.decode('utf-8').split('<select name="data_sharing_for_analytics_allowed"')[1].split('</select>')[0]
         self.assertIn('<option value="false" selected', select_block_for_analytics_after_post)
+
+    # --- Dashboard Tests ---
+    def test_dashboard_page_empty(self):
+        # Ensure no service_profiles.json exists or it's empty
+        if os.path.exists(self.service_profiles_path):
+            os.remove(self.service_profiles_path)
+
+        with app.test_request_context(): # Need app context for url_for
+            response = self.client.get(url_for('dashboard_overview'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Your Privacy Dashboard", response.data)
+        self.assertIn(b"No services analyzed yet.", response.data)
+        self.assertIn(b"Key Privacy Insights (Placeholders)", response.data)
+
+    def test_dashboard_page_with_service_profiles(self):
+        ts1_iso = datetime(2024, 1, 1, 10, 0, 0, tzinfo=timezone.utc).isoformat()
+        ts2_iso = datetime(2024, 1, 2, 12, 0, 0, tzinfo=timezone.utc).isoformat() # More recent
+
+        profile1_data = {
+            'service_id': 'example.com', 'service_name': 'Example Site',
+            'latest_analysis_timestamp': ts1_iso, 'latest_policy_identifier': 'pid1_hist',
+            'latest_service_risk_score': 30, 'num_total_clauses': 10,
+            'high_concern_count': 0, 'medium_concern_count': 1, 'low_concern_count': 2,
+            'source_url': 'http://example.com/privacy'
+        }
+        profile2_data = {
+            'service_id': 'another.org', 'service_name': 'Another Org',
+            'latest_analysis_timestamp': ts2_iso, 'latest_policy_identifier': 'pid2_hist',
+            'latest_service_risk_score': 75, 'num_total_clauses': 20,
+            'high_concern_count': 3, 'medium_concern_count': 2, 'low_concern_count': 1,
+            'source_url': 'http://another.org/policy'
+        }
+        profile1 = ServiceProfile(**profile1_data)
+        profile2 = ServiceProfile(**profile2_data)
+
+        # Save profiles (profile2 is more recent, save_service_profiles sorts by name, but get_all sorts by timestamp)
+        dashboard_data_manager.save_service_profiles([profile1, profile2])
+
+        with app.test_request_context(): # Need app context for url_for
+            response = self.client.get(url_for('dashboard_overview'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Your Privacy Dashboard", response.data)
+
+        # Check for profile2 (more recent, should be first due to sorting in get_all_service_profiles_for_dashboard)
+        self.assertIn(b"Another Org", response.data)
+        self.assertIn(b"2024-01-02 12:00:00", response.data)
+        self.assertIn(b"<span class=\"risk-score-value risk-score-high-text\">75/100</span>", response.data)
+        self.assertIn(b"<span class=\"risk-category-label risk-score-high-text\">High Risk</span>", response.data) # Typo fix: was risk_score-high-text for label before, should be this
+        self.assertIn(bytes(url_for('view_historical_analysis', policy_identifier='pid2_hist'), 'utf-8'), response.data)
+
+        # Check for profile1
+        self.assertIn(b"Example Site", response.data)
+        self.assertIn(b"2024-01-01 10:00:00", response.data)
+        self.assertIn(b"<span class=\"risk-score-value risk-score-low-text\">30/100</span>", response.data)
+        self.assertIn(b"<span class=\"risk-category-label risk-score-low-text\">Low Risk</span>", response.data) # Typo fix
+        self.assertIn(bytes(url_for('view_historical_analysis', policy_identifier='pid1_hist'), 'utf-8'), response.data)
+
+        text_data = response.data.decode('utf-8')
+        self.assertTrue(text_data.find("Another Org") < text_data.find("Example Site"), "Profile 2 (another.org) should appear before Profile 1 (example.com) due to newer timestamp.")
+
+        self.assertIn(b"Key Privacy Insights (Placeholders)", response.data)
+        self.assertIn(bytes(url_for('index'), 'utf-8'), response.data)
+        self.assertIn(bytes(url_for('history_list_route_function'), 'utf-8'), response.data) # Corrected endpoint name
+        self.assertIn(bytes(url_for('preferences'), 'utf-8'), response.data)
 
 if __name__ == '__main__':
     unittest.main()

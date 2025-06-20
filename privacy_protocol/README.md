@@ -14,14 +14,12 @@ Privacy Protocol is an application designed to analyze privacy policy text. It i
 -   **Actionable Recommendations:** Provides suggestions based on the analysis and user concern levels.
    - **Enhanced Risk Scoring:** For each analyzed policy, a `Service Risk Score` (0-100) is calculated and prominently displayed. This score is color-coded (Green for Low, Yellow for Medium, Red for High risk) and helps you quickly assess the potential privacy implications based on both AI-detected clause categories and your personalized concern settings. Counts of high, medium, and low concern clauses, along with the total number of clauses analyzed, provide further context.
 -   **Web Interface:** User-friendly interface for pasting text, viewing analysis, and managing preferences.
-   - **Policy History & Change Tracking:**
-       *   **Automatic History:** Every policy text you analyze is automatically saved along with its detailed analysis results (AI categorization, keyword flags, plain language summaries, risk assessment, and recommendations).
-       *   **View Past Analyses:** Navigate to the `/history` page in the web application to see a list of all your saved analyses, sorted by date. From there, you can click to view the full results of any specific past analysis just as it was when originally processed.
-       *   **Basic Change Detection:** When you analyze a new policy text, it is automatically compared against the most recent version stored in your history.
-           *   If changes are detected, a visual summary highlighting the differences (additions and deletions) will be displayed on the analysis results page.
-           *   If the new text is identical to the last saved version, a "No textual changes detected" message will appear.
-           *   If it's the first time a policy is analyzed (or if history is empty), it will indicate that no previous version was found for comparison.
-       *   **Storage:** Policy history is stored locally in JSON files within the `privacy_protocol/policy_history/` directory in your application folder.
+     *   **Policy History & Change Tracking (`/history`):**
+         *   **Automatic History:** Every policy text you analyze is automatically saved along with its detailed analysis results (AI categorization, keyword flags, plain language summaries, risk assessment, and recommendations).
+         *   **View Past Analyses:** Navigate to the `/history` page to see a list of all your saved analyses, sorted by date. From there, you can click to view the full results of any specific past analysis.
+         *   **Basic Change Detection:** When analyzing new text, it's compared against the most recent version in history. Differences are highlighted on the results page.
+         *   **Storage:** Policy history is stored locally in JSON files within the `privacy_protocol/policy_history/` directory.
+     *   **Privacy Dashboard (`/dashboard`):** Provides an overview of all analyzed services. Each service entry (derived from your analysis history) displays its name/identifier, the latest analysis date, the calculated `Service Risk Score` (0-100, color-coded for Low/Medium/High risk), and a direct link to its detailed historical analysis. The dashboard also includes a section for placeholder "Key Privacy Insights". (Note: An overall aggregated risk score for your entire profile is a planned future feature.)
 
 ## Prerequisites
 
@@ -107,6 +105,7 @@ Privacy Protocol is an application designed to analyze privacy policy text. It i
 
 4.  Open your web browser and navigate to `http://0.0.0.0:5000/`.
 5.  Access the `/history` page to review previously analyzed policies.
+6.  Visit the `/dashboard` page for an overview of your analyzed services and their risk scores.
 
 ## Running Tests
 
