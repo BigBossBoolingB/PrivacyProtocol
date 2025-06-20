@@ -12,6 +12,7 @@ Privacy Protocol is an application designed to analyze privacy policy text. It i
 -   **User Preference Management:** Allows users to set their privacy preferences (e.g., allowance for data selling, ad tracking).
 -   **Personalized Risk Assessment:** Calculates a risk score and highlights clauses of high, medium, or low concern based on user preferences.
 -   **Actionable Recommendations:** Provides suggestions based on the analysis and user concern levels.
+   - **Enhanced Risk Scoring:** For each analyzed policy, a `Service Risk Score` (0-100) is calculated and prominently displayed. This score is color-coded (Green for Low, Yellow for Medium, Red for High risk) and helps you quickly assess the potential privacy implications based on both AI-detected clause categories and your personalized concern settings. Counts of high, medium, and low concern clauses, along with the total number of clauses analyzed, provide further context.
 -   **Web Interface:** User-friendly interface for pasting text, viewing analysis, and managing preferences.
    - **Policy History & Change Tracking:**
        *   **Automatic History:** Every policy text you analyze is automatically saved along with its detailed analysis results (AI categorization, keyword flags, plain language summaries, risk assessment, and recommendations).

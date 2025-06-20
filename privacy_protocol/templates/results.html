@@ -8,21 +8,38 @@
         .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
         h1, h2, h3 { color: #333; }
         .risk-summary-box {
-            background-color: #fff3cd; /* Light yellow, often used for alerts */
-            border: 1px solid #ffeeba;
-            color: #856404;
+            /* Existing styles, perhaps adjust background if using -bg classes */
             padding: 15px;
             margin-bottom: 20px;
             border-radius: 4px;
+            border: 1px solid #ccc; /* Default border */
         }
         .risk-summary-box h3 {
             margin-top: 0;
-            color: #856404;
+            text-align: center;
         }
         .risk-score-value {
             font-weight: bold;
-            font-size: 1.2em;
+            font-size: 1.8em; /* Larger font for the score */
         }
+        .risk-category-label {
+           font-weight: bold;
+           font-size: 1.2em;
+           text-align: center;
+           margin-bottom: 10px;
+        }
+        .risk-hr { margin-top: 10px; margin-bottom: 10px; border-style: dashed; border-color: #ccc; }
+
+        /* Backgrounds for the box */
+        .risk-score-low-bg { background-color: #e6ffed; border-left: 5px solid #28a745; }
+        .risk-score-medium-bg { background-color: #fff3cd; border-left: 5px solid #ffc107; }
+        .risk-score-high-bg { background-color: #f8d7da; border-left: 5px solid #dc3545; }
+
+        /* Text colors for score and label */
+        .risk-score-low-text { color: #155724; } /* Dark green */
+        .risk-score-medium-text { color: #856404; } /* Dark yellow/orange */
+        .risk-score-high-text { color: #721c24; } /* Dark red */
+
         .diff-section {
             margin-top: 20px;
             padding: 15px;
@@ -87,14 +104,32 @@
         <h1>{{ page_title if page_title else "Analysis Results" }}</h1>
 
         {% if risk_assessment %}
-        <div class="risk-summary-box">
-            <h3>Overall Privacy Risk Assessment</h3>
-            <p><strong>Overall Risk Score:</strong> <span class="risk-score-value">{{ risk_assessment.overall_risk_score }}</span></p>
-            <p><strong>High Concern Clauses:</strong> {{ risk_assessment.high_concern_count }}</p>
-            <p><strong>Medium Concern Clauses:</strong> {{ risk_assessment.medium_concern_count }}</p>
-            <p><strong>Low Concern Clauses:</strong> {{ risk_assessment.low_concern_count }}</p>
-            <p><strong>Uncategorized/No Concern Clauses:</strong> {{ risk_assessment.none_concern_count }}</p> <!-- Optional to display -->
-        </div>
+            {% set score = risk_assessment.service_risk_score | round | int %}
+            {% set score_color_class = 'risk-score-low' %}
+            {% if score > 66 %}
+                {% set score_color_class = 'risk-score-high' %}
+            {% elif score > 33 %}
+                {% set score_color_class = 'risk-score-medium' %}
+            {% endif %}
+
+            <div class="risk-summary-box {{ score_color_class }}-bg">
+                <h3>Privacy Risk Assessment</h3>
+                <p><strong>Calculated Risk Score:</strong>
+                    <span class="risk-score-value {{ score_color_class }}-text">{{ score }}/100</span>
+                </p>
+                <p class="risk-category-label {{ score_color_class }}-text">
+                    {% if score_color_class == 'risk-score-high' %}High Risk
+                    {% elif score_color_class == 'risk-score-medium' %}Medium Risk
+                    {% else %}Low Risk
+                    {% endif %}
+                </p>
+                <hr class="risk-hr">
+                <p><strong>High Concern Clauses:</strong> {{ risk_assessment.high_concern_count }}</p>
+                <p><strong>Medium Concern Clauses:</strong> {{ risk_assessment.medium_concern_count }}</p>
+                <p><strong>Low Concern Clauses:</strong> {{ risk_assessment.low_concern_count }}</p>
+                <p><strong>Uncategorized/No Concern Clauses:</strong> {{ risk_assessment.none_concern_count }}</p>
+                <p><em>(Based on {{ risk_assessment.num_clauses_analyzed }} clauses analyzed)</em></p>
+            </div>
         {% endif %}
 
         {% if diff_html %}

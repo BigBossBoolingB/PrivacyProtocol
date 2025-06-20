@@ -99,3 +99,47 @@ The application includes a `PlainLanguageTranslator` in `privacy_protocol/privac
 Replacing or supplementing the external APIs with a custom-trained AI model (typically a sequence-to-sequence model) would involve: (Details for phases 1-6 remain largely the same as previously listed: Parallel Corpus Collection, Model Selection, Training/Fine-tuning, Evaluation, Serialization/Integration, Iteration).
 
 Developing a high-quality custom AI plain-language translator is a significant undertaking, with data collection for a parallel corpus being a primary challenge. The current multi-provider API integration offers flexibility and access to powerful existing models.
+
+## Service Risk Scoring Algorithm
+
+The application calculates a `service_risk_score` (normalized 0-100) for each analyzed privacy policy to provide an at-a-glance understanding of its potential risk based on the current analysis and user preferences.
+
+### Inputs to the Score:
+-   **AI-Predicted Category (`ai_category`):** The category assigned to each clause by the clause classifier (currently rule-based, planned to be LLM-driven).
+-   **User Concern Level (`user_concern_level`):** 'High', 'Medium', 'Low', or 'None', determined by comparing the `ai_category` (and potentially keywords) against user-defined preferences.
+
+### Calculation Steps:
+
+1.  **Base Points per AI Category:** Each `ai_category` has predefined base risk points:
+    -   'Data Selling': 20
+    -   'Data Sharing': 15
+    -   'Cookies and Tracking Technologies': 10
+    -   'Childrens Privacy': 15
+    -   'Data Collection': 10
+    -   'Security': 0 (Neutral by default)
+    -   'Data Retention': 5
+    -   'Policy Change': 5
+    -   'User Rights': 10
+    -   'International Data Transfer': 5
+    -   'Contact Information': 0
+    -   'Consent/Opt-out': 10
+    -   'Other': 1
+
+2.  **Bonus Points per User Concern Level:**
+    -   'High' concern: +15 points
+    -   'Medium' concern: +7 points
+    -   'Low' concern: +2 points
+    -   'None' concern: +0 points
+
+3.  **Per-Sentence Risk:** For each analyzed sentence:
+    `sentence_risk = AI_CATEGORY_BASE_POINTS[sentence.ai_category] + USER_CONCERN_BONUS_POINTS[sentence.user_concern_level]`
+
+4.  **Total Accumulated Risk:** Sum of all `sentence_risk` values.
+
+5.  **Normalization:**
+    -   `MAX_RISK_POINTS_PER_SENTENCE` is calculated as `max(AI_CATEGORY_BASE_POINTS.values()) + USER_CONCERN_BONUS_POINTS['High']` (e.g., 20 + 15 = 35).
+    -   `total_possible_risk = num_clauses_analyzed * MAX_RISK_POINTS_PER_SENTENCE`.
+    -   `service_risk_score = (total_accumulated_risk / total_possible_risk) * 100` (if `total_possible_risk > 0`, else 0).
+    -   The score is then rounded and capped between 0 and 100.
+
+This initial algorithm provides a quantitative measure. Future enhancements may involve more dynamic weighting or machine-learned risk models.

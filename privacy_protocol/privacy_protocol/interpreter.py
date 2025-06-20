@@ -5,6 +5,39 @@ from .ml_classifier import ClauseClassifier
 from .plain_language_translator import PlainLanguageTranslator # Import PlainLanguageTranslator
 
 class PrivacyInterpreter:
+    # Define base points and bonuses for service_risk_score calculation
+    AI_CATEGORY_BASE_POINTS = {
+        'Data Selling': 20,
+        'Data Sharing': 15,
+        'Cookies and Tracking Technologies': 10,
+        'Childrens Privacy': 15,
+        'Data Collection': 10,
+        'Security': 0,
+        'Data Retention': 5,
+        'Policy Change': 5,
+        'User Rights': 10,
+        'International Data Transfer': 5,
+        'Contact Information': 0,
+        'Consent/Opt-out': 10,
+        'Other': 1
+    }
+    USER_CONCERN_BONUS_POINTS = {
+        'High': 15,
+        'Medium': 7,
+        'Low': 2,
+        'None': 0
+    }
+    # Calculate MAX_RISK_POINTS_PER_SENTENCE based on the defined points
+    # Ensure this calculation is done after AI_CATEGORY_BASE_POINTS and USER_CONCERN_BONUS_POINTS are defined.
+    # One way is to do it directly here if Python's class attribute definition order allows direct reference,
+    # or compute it within methods/constructor if needed. For simplicity, direct computation:
+    _max_ai_base = 0
+    for val in AI_CATEGORY_BASE_POINTS.values():
+        if val > _max_ai_base:
+            _max_ai_base = val
+    MAX_RISK_POINTS_PER_SENTENCE = _max_ai_base + USER_CONCERN_BONUS_POINTS['High']
+
+
     def __init__(self):
         self.keywords_data = {}
         self.nlp = None
@@ -148,19 +181,23 @@ class PrivacyInterpreter:
         high_concern_count = 0
         medium_concern_count = 0
         low_concern_count = 0
-        none_concern_count = 0 # Optional, for completeness
+        none_concern_count = 0
+        num_clauses_analyzed = len(analyzed_sentences_data)
+        accumulated_risk_points_for_service_score = 0
 
-        if not analyzed_sentences_data:
+        if num_clauses_analyzed == 0:
             return {
                 'overall_risk_score': 0,
+                'service_risk_score': 0,
                 'high_concern_count': 0,
                 'medium_concern_count': 0,
                 'low_concern_count': 0,
-                'none_concern_count': 0
+                'none_concern_count': 0,
+                'num_clauses_analyzed': 0
             }
 
         for sentence_analysis in analyzed_sentences_data:
-            concern_level = sentence_analysis.get('user_concern_level', 'None') # Default to 'None'
+            concern_level = sentence_analysis.get('user_concern_level', 'None')
             if concern_level == 'High':
                 overall_risk_score += 10
                 high_concern_count += 1
@@ -173,12 +210,28 @@ class PrivacyInterpreter:
             else: # 'None'
                 none_concern_count +=1
 
+            # New logic for service_risk_score
+            ai_category = sentence_analysis.get('ai_category', 'Other')
+            base_points = self.AI_CATEGORY_BASE_POINTS.get(ai_category, self.AI_CATEGORY_BASE_POINTS['Other'])
+            concern_bonus = self.USER_CONCERN_BONUS_POINTS.get(concern_level, 0)
+            sentence_actual_risk = base_points + concern_bonus
+            accumulated_risk_points_for_service_score += sentence_actual_risk
+
+        service_risk_score = 0
+        if num_clauses_analyzed > 0:
+            total_possible_risk_points_for_service_score = num_clauses_analyzed * self.MAX_RISK_POINTS_PER_SENTENCE
+            if total_possible_risk_points_for_service_score > 0:
+                service_risk_score = (accumulated_risk_points_for_service_score / total_possible_risk_points_for_service_score) * 100
+            service_risk_score = round(min(max(service_risk_score, 0), 100))
+
         return {
             'overall_risk_score': overall_risk_score,
+            'service_risk_score': service_risk_score,
             'high_concern_count': high_concern_count,
             'medium_concern_count': medium_concern_count,
             'low_concern_count': low_concern_count,
-            'none_concern_count': none_concern_count
+            'none_concern_count': none_concern_count,
+            'num_clauses_analyzed': num_clauses_analyzed
         }
 
 if __name__ == '__main__':
@@ -236,10 +289,12 @@ if __name__ == '__main__':
                 # Calculate and print risk assessment
                 risk_assessment = interpreter.calculate_risk_assessment(analysis_results)
                 print("\n\n--- Risk Assessment (Interpreter Example) ---")
-                print(f"Overall Risk Score: {risk_assessment['overall_risk_score']}")
+                print(f"Overall Risk Score (sum of points): {risk_assessment['overall_risk_score']}")
+                print(f"Service Risk Score (0-100 normalized): {risk_assessment['service_risk_score']}")
                 print(f"High Concern Sentences: {risk_assessment['high_concern_count']}")
                 print(f"Medium Concern Sentences: {risk_assessment['medium_concern_count']}")
                 print(f"Low Concern Sentences: {risk_assessment['low_concern_count']}")
                 print(f"None Concern Sentences: {risk_assessment['none_concern_count']}")
+                print(f"Total Clauses Analyzed: {risk_assessment['num_clauses_analyzed']}")
             else:
                 print("No analysis results from the interpreter example (this might also happen if NLP model is missing).")

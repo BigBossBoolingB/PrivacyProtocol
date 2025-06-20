@@ -1,4 +1,37 @@
 import json
+# --- Conceptual Data Models for Future Multi-Service Dashboard ---
+# These models are for future planning and are not fully implemented in terms of aggregation yet.
+# The current system saves individual policy analyses which contain the data needed for
+# a 'ServiceEntry'.
+
+# Conceptual: Represents a single analyzed service/policy in the dashboard list
+# class ServiceEntry:
+#     service_name: str  # User-defined or derived from URL
+#     policy_identifier: str # The ID of the specific analysis version shown/latest
+#     last_analysis_date: str # ISO timestamp
+#     policy_version_identifier: str # Could be timestamp, or a hash of policy text
+#     service_risk_score: int # The 0-100 score for this specific policy version
+#     key_flagged_clauses_summary: List[str] # e.g., ["Mentions data selling (High Concern)", "Extensive cookie usage (Medium Concern)"]
+#     source_url: str | None
+
+# Conceptual: Represents the overall user privacy profile summary for the dashboard
+# class PrivacyProfileSummary:
+#     user_id: str # If multi-user support is added
+#     overall_user_privacy_risk_score: int # Aggregated score from all services (0-100)
+#     last_updated: str # ISO timestamp
+#     services_analyzed: List[ServiceEntry] # List of all services/policies tracked
+#     key_privacy_insights: List[str] # e.g., ["Multiple services share data for ads", "High risk from Service X"]
+#     recent_policy_changes: List[dict] # Summary of recent significant policy changes across services
+
+# The 'risk_assessment' dict saved by save_policy_analysis currently contains:
+#   'overall_risk_score' (old sum-based score)
+#   'service_risk_score' (new 0-100 normalized score for the policy)
+#   'high_concern_count', 'medium_concern_count', 'low_concern_count', 'none_concern_count'
+#   'num_clauses_analyzed'
+# This 'service_risk_score' and the concern counts are key inputs for a ServiceEntry's score and insights.
+# The 'policy_identifier' and 'analysis_timestamp' saved are also key for ServiceEntry.
+# 'service_name' would likely come from user input when saving or from the source_url.
+
 import os
 import glob
 from datetime import datetime, timezone

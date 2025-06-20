@@ -9,6 +9,24 @@ sys.path.insert(0, project_root)
 from privacy_protocol.interpreter import PrivacyInterpreter
 from privacy_protocol.user_preferences import get_default_preferences # For default prefs in tests
 
+# Constants for risk calculation tests - should mirror interpreter.py
+AI_CATEGORY_BASE_POINTS = {
+    'Data Selling': 20, 'Data Sharing': 15, 'Cookies and Tracking Technologies': 10,
+    'Childrens Privacy': 15, 'Data Collection': 10, 'Security': 0,
+    'Data Retention': 5, 'Policy Change': 5, 'User Rights': 10,
+    'International Data Transfer': 5, 'Contact Information': 0,
+    'Consent/Opt-out': 10, 'Other': 1
+}
+USER_CONCERN_BONUS_POINTS = {
+    'High': 15, 'Medium': 7, 'Low': 2, 'None': 0
+}
+_max_ai_base = 0
+for val in AI_CATEGORY_BASE_POINTS.values():
+    if val > _max_ai_base:
+        _max_ai_base = val
+MAX_RISK_POINTS_PER_SENTENCE = _max_ai_base + USER_CONCERN_BONUS_POINTS['High']
+
+
 # Attempt to load spaCy and the model once to determine if NLP-dependent tests can run
 SPACY_MODEL_AVAILABLE = False
 try:
@@ -57,45 +75,81 @@ class TestPrivacyInterpreter(unittest.TestCase):
     def test_calculate_risk_assessment_empty_input(self):
         assessment = self.interpreter.calculate_risk_assessment([])
         self.assertEqual(assessment['overall_risk_score'], 0)
+        self.assertEqual(assessment['service_risk_score'], 0)
         self.assertEqual(assessment['high_concern_count'], 0)
         self.assertEqual(assessment['medium_concern_count'], 0)
         self.assertEqual(assessment['low_concern_count'], 0)
         self.assertEqual(assessment['none_concern_count'], 0)
+        self.assertEqual(assessment['num_clauses_analyzed'], 0)
 
     def test_calculate_risk_assessment_mixed_concerns(self):
         analyzed_data = [
-            {'user_concern_level': 'High', 'clause_text': 'Sentence 1'},
-            {'user_concern_level': 'High', 'clause_text': 'Sentence 2'},
-            {'user_concern_level': 'Medium', 'clause_text': 'Sentence 3'},
-            {'user_concern_level': 'Low', 'clause_text': 'Sentence 4'},
-            {'user_concern_level': 'None', 'clause_text': 'Sentence 5'},
-            {'user_concern_level': 'Medium', 'clause_text': 'Sentence 6'}
+            {'user_concern_level': 'High', 'ai_category': 'Data Selling', 'clause_text': 'Sentence 1'},
+            {'user_concern_level': 'High', 'ai_category': 'Cookies and Tracking Technologies', 'clause_text': 'Sentence 2'},
+            {'user_concern_level': 'Medium', 'ai_category': 'Data Sharing', 'clause_text': 'Sentence 3'},
+            {'user_concern_level': 'Low', 'ai_category': 'Data Collection', 'clause_text': 'Sentence 4'},
+            {'user_concern_level': 'None', 'ai_category': 'Other', 'clause_text': 'Sentence 5'},
+            {'user_concern_level': 'Medium', 'ai_category': 'Policy Change', 'clause_text': 'Sentence 6'}
         ]
         assessment = self.interpreter.calculate_risk_assessment(analyzed_data)
-        # Expected: (2 * 10) + (2 * 5) + (1 * 1) = 20 + 10 + 1 = 31
-        self.assertEqual(assessment['overall_risk_score'], 31)
+
+        # Old score assertion
+        self.assertEqual(assessment['overall_risk_score'], 31) # (2*10) + (2*5) + (1*1)
         self.assertEqual(assessment['high_concern_count'], 2)
         self.assertEqual(assessment['medium_concern_count'], 2)
         self.assertEqual(assessment['low_concern_count'], 1)
         self.assertEqual(assessment['none_concern_count'], 1)
+        self.assertEqual(assessment['num_clauses_analyzed'], 6)
+
+        # New service_risk_score assertion
+        expected_accumulated = (AI_CATEGORY_BASE_POINTS['Data Selling'] + USER_CONCERN_BONUS_POINTS['High']) + \
+                               (AI_CATEGORY_BASE_POINTS['Cookies and Tracking Technologies'] + USER_CONCERN_BONUS_POINTS['High']) + \
+                               (AI_CATEGORY_BASE_POINTS['Data Sharing'] + USER_CONCERN_BONUS_POINTS['Medium']) + \
+                               (AI_CATEGORY_BASE_POINTS['Data Collection'] + USER_CONCERN_BONUS_POINTS['Low']) + \
+                               (AI_CATEGORY_BASE_POINTS['Other'] + USER_CONCERN_BONUS_POINTS['None']) + \
+                               (AI_CATEGORY_BASE_POINTS['Policy Change'] + USER_CONCERN_BONUS_POINTS['Medium'])
+        expected_max_possible = 6 * MAX_RISK_POINTS_PER_SENTENCE
+        expected_service_score = round((expected_accumulated / expected_max_possible) * 100) if expected_max_possible else 0
+        self.assertEqual(assessment['service_risk_score'], expected_service_score)
+
 
     def test_calculate_risk_assessment_only_low_concerns(self):
         analyzed_data = [
-            {'user_concern_level': 'Low', 'clause_text': 'Sentence 1'},
-            {'user_concern_level': 'Low', 'clause_text': 'Sentence 2'}
+            {'user_concern_level': 'Low', 'ai_category': 'User Rights', 'clause_text': 'Sentence 1'},
+            {'user_concern_level': 'Low', 'ai_category': 'Contact Information', 'clause_text': 'Sentence 2'}
         ]
         assessment = self.interpreter.calculate_risk_assessment(analyzed_data)
-        self.assertEqual(assessment['overall_risk_score'], 2)
+        self.assertEqual(assessment['overall_risk_score'], 2) # 2 * 1
         self.assertEqual(assessment['high_concern_count'], 0)
         self.assertEqual(assessment['medium_concern_count'], 0)
         self.assertEqual(assessment['low_concern_count'], 2)
         self.assertEqual(assessment['none_concern_count'], 0)
+        self.assertEqual(assessment['num_clauses_analyzed'], 2)
+
+        expected_accumulated = (AI_CATEGORY_BASE_POINTS['User Rights'] + USER_CONCERN_BONUS_POINTS['Low']) + \
+                               (AI_CATEGORY_BASE_POINTS['Contact Information'] + USER_CONCERN_BONUS_POINTS['Low'])
+        expected_max_possible = 2 * MAX_RISK_POINTS_PER_SENTENCE
+        expected_service_score = round((expected_accumulated / expected_max_possible) * 100) if expected_max_possible else 0
+        self.assertEqual(assessment['service_risk_score'], expected_service_score)
+
 
     def test_calculate_risk_assessment_with_missing_concern_key(self):
-        analyzed_data = [{'clause_text': 'Sentence 1'}] # Missing 'user_concern_level'
+        # Assumes 'user_concern_level' defaults to 'None' and 'ai_category' defaults to 'Other' if missing
+        analyzed_data = [
+            {'clause_text': 'Sentence 1', 'ai_category': 'Data Collection'}, # Missing user_concern_level
+            {'clause_text': 'Sentence 2', 'user_concern_level': 'Low'}     # Missing ai_category
+        ]
         assessment = self.interpreter.calculate_risk_assessment(analyzed_data)
-        self.assertEqual(assessment['overall_risk_score'], 0) # Defaults to 'None'
+        self.assertEqual(assessment['overall_risk_score'], 1) # 0 for first (None), 1 for second (Low)
         self.assertEqual(assessment['none_concern_count'], 1)
+        self.assertEqual(assessment['low_concern_count'], 1)
+        self.assertEqual(assessment['num_clauses_analyzed'], 2)
+
+        expected_accumulated = (AI_CATEGORY_BASE_POINTS['Data Collection'] + USER_CONCERN_BONUS_POINTS['None']) + \
+                               (AI_CATEGORY_BASE_POINTS['Other'] + USER_CONCERN_BONUS_POINTS['Low'])
+        expected_max_possible = 2 * MAX_RISK_POINTS_PER_SENTENCE
+        expected_service_score = round((expected_accumulated / expected_max_possible) * 100) if expected_max_possible else 0
+        self.assertEqual(assessment['service_risk_score'], expected_service_score)
 
     # --- NLP Dependent Tests ---
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
