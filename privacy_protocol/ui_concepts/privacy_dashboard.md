@@ -8,32 +8,35 @@ The dashboard will be a single-page view within the application, accessible via 
 
 It will be structured with the following key sections:
 
-### 1.1. Overall User Privacy Risk Score (Future)
-- **Display:** A prominent, large numerical score (e.g., 0-100, where lower is better, or a qualitative rating like Low/Medium/High Risk).
-- **Visualization:** Could be a circular progress bar, a gauge, or color-coded text (Green/Yellow/Red).
-- **Context:** A brief explanation of what this overall score represents (e.g., "Your average privacy risk exposure across all analyzed services.").
-- **Note:** Calculation of this overall user score (aggregating individual service scores) is a future development.
+### 1.1. Overall User Privacy Risk Score
+- **Status:** Implemented (Initial Version)
+- **Display:** A prominent, large numerical score (0-100), color-coded (Green/Yellow/Red) for Low/Medium/High risk.
+- **Context:** Represents an average privacy risk exposure across all analyzed services. Accompanied by counts of services in high, medium, and low risk categories, and the total number of services analyzed. Last aggregation timestamp is shown.
+- **Future Enhancements:** Weighted averaging, more sophisticated risk aggregation beyond a simple average.
 
-### 1.2. Key Privacy Insights / Global Alerts (Future)
-- **Display:** A small section highlighting 2-3 critical privacy insights or global alerts derived from the user's analyzed policies.
-- **Examples:**
-    - "Warning: 3 of your analyzed services mention data selling, and you prefer to disallow this."
-    - "Insight: Most of your services provide clear opt-out mechanisms for marketing."
-    - "Alert: 'Service X' policy changed significantly on [Date]. [Link to view changes]"
-- **Note:** Generating these insights automatically is a future development.
+### 1.2. Key Privacy Insights / Global Alerts
+- **Status:** Implemented (Basic Version)
+- **Display:** A section highlighting a few key privacy insights derived from the user's analyzed policies.
+- **Current Implementation:** Shows generic insights if specific high-risk patterns are detected (e.g., "Service X has a High privacy risk score"). If no specific patterns, shows a general statement based on overall score. Limited to a few insights.
+- **Future Enhancements:** More sophisticated, context-aware insights (e.g., "3 services engage in data selling, and you prefer to disallow this."), alerts for significant policy changes across services.
 
 ### 1.3. List/Grid of Analyzed Services
-- **Display:** The main section of the dashboard. Each analyzed service/policy will be represented as a card or a row in a sortable table.
+- **Status:** Implemented
+- **Display:** The main section of the dashboard. Each analyzed service/policy is represented as a card.
 - **Information per Service Card/Row:**
-    - **Service Name/Identifier:** (e.g., "Example.com Privacy Policy", "My Social App Terms"). This would ideally be user-editable or derived smartly.
-    - **Individual Service Risk Score:** The `service_risk_score` (0-100) calculated for that policy's latest analysis. Displayed numerically and/or with a color code (Green/Yellow/Red).
-    - **Last Analyzed Date:** Timestamp of the most recent analysis for that service.
-    - **Key Concerns Summary:** 1-2 brief bullet points of the highest concern items for that specific policy (e.g., "Shares data for ads (High Concern)", "Tracks location data (Medium Concern)").
-    - **Policy Changed Indicator:** A small icon or text if this policy has changed since the user's last review of it on *this dashboard* or since the last analysis (requires more sophisticated change tracking than just the last diff on `/analyze`).
-    - **Action Button/Link:** "View Details" or similar, linking to the detailed analysis view (currently `results.html` via `/history/view/[id]`).
-- **Sorting/Filtering (Future):** Allow sorting by service name, risk score, or last analyzed date. Filtering by risk level could also be added.
+    - **Service Name/Identifier:** Derived from URL or policy identifier for pasted text.
+    - **Individual Service Risk Score:** The `service_risk_score` (0-100) for that policy's latest analysis, color-coded.
+    - **Last Analyzed Date:** Timestamp of the most recent analysis.
+    - **Action Button/Link:** "View Details" linking to the detailed historical analysis view (`/history/view/[id]`).
+- **Sorting:** Default sort is by last analyzed timestamp (most recent first).
+- **Future Enhancements:**
+    - User-editable service names.
+    - More detailed "Key Concerns Summary" per service card.
+    - "Policy Changed Indicator" (requires more advanced change tracking).
+    - Advanced sorting and filtering options.
 
 ### 1.4. Quick Actions / Global Recommendations (Future)
+- **Status:** Future
 - **Display:** A section for general privacy tips or quick actions not tied to a specific policy.
 - **Examples:**
     - "Review your device's global ad tracking settings."
@@ -57,7 +60,7 @@ It will be structured with the following key sections:
 
 To fully realize this dashboard, the backend will need to:
 - Store and retrieve multiple named/identified policy analyses per user.
-- Aggregate risk scores and insights from these individual analyses to compute an overall user score and global insights.
-- Track policy versions and changes more systematically for each named service to feed into "Policy Changed Indicator" and "Key Privacy Insights".
+- The implemented version aggregates `service_risk_score` for an overall score and provides basic insights.
+- More sophisticated tracking of policy versions and changes for indicators/alerts is a future enhancement.
 
-This conceptual design serves as a blueprint for the future development of the Privacy Risk Dashboard. The initial implementation will focus on enhancing the display of the single-policy risk score on the existing `results.html` page, which serves as a precursor to this more comprehensive dashboard view.
+This document has been updated to reflect the initial implemented version of the Privacy Risk Dashboard. Further iterations will build upon this foundation.

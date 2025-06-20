@@ -76,11 +76,15 @@ def save_policy_analysis(identifier: str, policy_text: str, analysis_results: li
         try:
             # Import here to avoid circular dependency at module load time if dashboard_data_manager
             # were to ever import something from policy_history_manager globally.
-            from .dashboard_data_manager import update_or_create_service_profile
-            update_or_create_service_profile(data_to_save)
+            from . import dashboard_data_manager # Import the module
+            dashboard_data_manager.update_or_create_service_profile(data_to_save)
+
+            # Now, also update the overall user privacy profile
+            dashboard_data_manager.calculate_and_save_user_privacy_profile() # Call with default user_id
+
         except Exception as e_dash:
             # Log or handle error in updating dashboard profile, but don't let it fail the primary save operation.
-            print(f"Warning: Policy analysis saved, but failed to update service profile for {identifier}: {e_dash}")
+            print(f"Warning: Policy analysis saved, but failed to update service profile or user profile for {identifier}: {e_dash}")
             # Depending on desired robustness, you might want to retry or queue this update.
 
         return filename

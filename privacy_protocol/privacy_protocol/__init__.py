@@ -27,12 +27,14 @@ from .policy_history_manager import (
     get_latest_policy_analysis,
     generate_policy_identifier
 )
-from .dashboard_models import ServiceProfile
+from .dashboard_models import ServiceProfile, UserPrivacyProfile # Add UserPrivacyProfile
 from .dashboard_data_manager import (
     load_service_profiles,
-    # save_service_profiles, # Typically internal if update_or_create is the main public interface
+    # save_service_profiles,
     update_or_create_service_profile,
-    get_all_service_profiles_for_dashboard, # Add this
+    get_all_service_profiles_for_dashboard,
+    calculate_and_save_user_privacy_profile, # Add this
+    load_user_privacy_profile # Add this
     # get_service_id_from_source # Likely internal
 )
 
@@ -75,7 +77,10 @@ __all__ = [
 
     # Dashboard components
     'ServiceProfile',
+    'UserPrivacyProfile',
     'load_service_profiles',
     'update_or_create_service_profile',
-    'get_all_service_profiles_for_dashboard', # Add this
+    'get_all_service_profiles_for_dashboard',
+    'calculate_and_save_user_privacy_profile', # Add this
+    'load_user_privacy_profile', # Add this
 ]

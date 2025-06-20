@@ -549,5 +549,115 @@ class TestWebApp(unittest.TestCase):
         self.assertIn(bytes(url_for('history_list_route_function'), 'utf-8'), response.data) # Corrected endpoint name
         self.assertIn(bytes(url_for('preferences'), 'utf-8'), response.data)
 
+    @patch.dict(os.environ, {ACTIVE_LLM_PROVIDER_ENV_VAR: PROVIDER_GEMINI}, clear=True)
+    @patch(GEMINI_SERVICE_KEY_CHECK_PATH, return_value=(True, "fake_key")) # Assume key is available
+    @patch(GEMINI_SERVICE_GENERATE_SUMMARY_PATH)
+    # Mock classify_clause for precise control over AI category
+    @patch('privacy_protocol.privacy_protocol.ml_classifier.ClauseClassifier.predict')
+    def test_dashboard_full_flow_multiple_analyses_and_updates(self, mock_classify_clause, mock_gemini_summary, mock_gemini_key_check):
+        # Configure default preferences for predictable concern levels
+        default_prefs = get_default_preferences()
+        default_prefs['data_selling_allowed'] = False # High concern for 'Data Selling'
+        default_prefs['cookies_for_tracking_allowed'] = True # Low/None concern for 'Cookies' by default
+        default_prefs['data_sharing_for_ads_allowed'] = False # High concern for 'Data Sharing'
+        app.interpreter.load_user_preferences(default_prefs.copy())
+
+        with app.test_request_context(): # For url_for
+            # Step A: Initial State
+            response = self.client.get(url_for('dashboard_overview'))
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"No services analyzed yet.", response.data)
+            user_profile_initial = dashboard_data_manager.load_user_privacy_profile()
+            self.assertIsNotNone(user_profile_initial)
+            self.assertIsNone(user_profile_initial.overall_privacy_risk_score)
+            self.assertEqual(user_profile_initial.total_services_analyzed, 0)
+
+            # Step B: Analyze First Policy (service1.com - Medium Risk)
+            # Policy: "We use cookies for analytics." -> AI: Cookies/Tracking, User Pref: cookies_for_tracking_allowed=True -> Concern: Low
+            # Score: Base=10 (Cookies), Bonus=2 (Low) -> Actual=12. Max=35. (12/35)*100 = 34 (Medium)
+            mock_gemini_summary.return_value = "Mocked summary for service1.com"
+            mock_classify_clause.return_value = "Cookies and Tracking Technologies"
+
+            response_analyze_1 = self.client.post(url_for('analyze'), data={
+                'policy_text': "We use cookies for analytics.",
+                'source_url': 'http://service1.com/privacy'
+            })
+            self.assertEqual(response_analyze_1.status_code, 200)
+            self._assert_risk_display_elements(response_analyze_1.data, score=34, num_clauses=1, high_c=0, med_c=0, low_c=1, none_c=0)
+
+            service_profiles_b = dashboard_data_manager.load_service_profiles()
+            self.assertEqual(len(service_profiles_b), 1)
+            self.assertEqual(service_profiles_b[0].service_id, 'service1.com')
+            self.assertEqual(service_profiles_b[0].latest_service_risk_score, 34)
+
+            user_profile_b = dashboard_data_manager.load_user_privacy_profile()
+            self.assertEqual(user_profile_b.overall_privacy_risk_score, 34)
+            self.assertEqual(user_profile_b.total_services_analyzed, 1)
+            self.assertEqual(user_profile_b.total_medium_risk_services_count, 1)
+
+            response_dash_b = self.client.get(url_for('dashboard_overview'))
+            self.assertIn(b"service1.com", response_dash_b.data)
+            self.assertIn(b"34/100", response_dash_b.data)
+            self.assertIn(b"Medium Risk Profile", response_dash_b.data) # Overall profile risk
+
+            # Step C: Analyze Second Policy (service2.org - High Risk)
+            # Policy: "We sell your personal data." -> AI: Data Selling, User Pref: data_selling_allowed=False -> Concern: High
+            # Score: Base=20 (Selling), Bonus=15 (High) -> Actual=35. Max=35. (35/35)*100 = 100 (High)
+            mock_gemini_summary.return_value = "Mocked summary for service2.org"
+            mock_classify_clause.return_value = "Data Selling"
+            response_analyze_2 = self.client.post(url_for('analyze'), data={
+                'policy_text': "We sell your personal data.",
+                'source_url': 'http://service2.org/privacy'
+            })
+            self.assertEqual(response_analyze_2.status_code, 200)
+            self._assert_risk_display_elements(response_analyze_2.data, score=100, num_clauses=1, high_c=1, med_c=0, low_c=0, none_c=0)
+
+            service_profiles_c = dashboard_data_manager.load_service_profiles()
+            self.assertEqual(len(service_profiles_c), 2)
+
+            user_profile_c = dashboard_data_manager.load_user_privacy_profile()
+            self.assertEqual(user_profile_c.total_services_analyzed, 2)
+            self.assertEqual(user_profile_c.overall_privacy_risk_score, round((34+100)/2)) # (34+100)/2 = 67 -> High
+            self.assertEqual(user_profile_c.total_high_risk_services_count, 1)
+            self.assertEqual(user_profile_c.total_medium_risk_services_count, 1)
+
+            response_dash_c = self.client.get(url_for('dashboard_overview'))
+            self.assertIn(b"service1.com", response_dash_c.data) # Should still be there
+            self.assertIn(b"service2.org", response_dash_c.data)
+            self.assertIn(b"100/100", response_dash_c.data) # service2 score
+            self.assertIn(b"High Risk Profile", response_dash_c.data) # Overall profile risk (67)
+
+            # Step D: Re-analyze First Policy (service1.com - now High Risk)
+            # Policy: "We sell data from service1.com." -> AI: Data Selling, User Pref: data_selling_allowed=False -> Concern: High
+            # Score: Base=20 (Selling), Bonus=15 (High) -> Actual=35. Max=35. (35/35)*100 = 100 (High)
+            # This policy text should have a newer timestamp. We'll rely on current time for that.
+            time.sleep(0.01) # Ensure timestamp difference
+            mock_gemini_summary.return_value = "Updated summary for service1.com"
+            mock_classify_clause.return_value = "Data Selling" # Changed category
+            response_analyze_3 = self.client.post(url_for('analyze'), data={
+                'policy_text': "We sell data from service1.com.", # Different text
+                'source_url': 'http://service1.com/privacy_v2' # Can be same or different URL for same service_id
+            })
+            self.assertEqual(response_analyze_3.status_code, 200)
+            self._assert_risk_display_elements(response_analyze_3.data, score=100, num_clauses=1, high_c=1, med_c=0, low_c=0, none_c=0)
+
+            service_profiles_d = dashboard_data_manager.load_service_profiles()
+            self.assertEqual(len(service_profiles_d), 2) # Still 2 services
+            profile_s1_updated = next(p for p in service_profiles_d if p.service_id == 'service1.com')
+            self.assertEqual(profile_s1_updated.latest_service_risk_score, 100)
+            self.assertTrue(profile_s1_updated.latest_analysis_timestamp > user_profile_b.last_aggregated_at) # Check timestamp updated
+
+            user_profile_d = dashboard_data_manager.load_user_privacy_profile()
+            self.assertEqual(user_profile_d.total_services_analyzed, 2)
+            self.assertEqual(user_profile_d.overall_privacy_risk_score, round((100+100)/2)) # (100+100)/2 = 100 -> High
+            self.assertEqual(user_profile_d.total_high_risk_services_count, 2) # Both are high now
+            self.assertEqual(user_profile_d.total_medium_risk_services_count, 0)
+
+            response_dash_d = self.client.get(url_for('dashboard_overview'))
+            self.assertIn(b"service1.com", response_dash_d.data)
+            self.assertIn(b"100/100", response_dash_d.data) # service1 updated score
+            self.assertIn(b"service2.org", response_dash_d.data)
+            self.assertIn(b"High Risk Profile", response_dash_d.data) # Overall profile risk (100)
+
 if __name__ == '__main__':
     unittest.main()

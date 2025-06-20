@@ -16,18 +16,18 @@ class ServiceProfile:
     # key_flagged_clauses_summary: List[str] = field(default_factory=list)
     source_url: Optional[str] = None # Original source URL if available
 
-# --- Conceptual: UserPrivacyProfile (Future Full Implementation) ---
-# @dataclass
-# class UserPrivacyProfile:
-#     user_id: str # Or some session identifier if single user for now
-#     overall_user_privacy_risk_score: Optional[int] = None # e.g., 0-100, average or weighted
-#     last_calculated: Optional[str] = None # ISO timestamp
-#     # The list of service profiles is what get_all_service_profiles_for_dashboard() currently provides.
-#     # In a full model, this might be stored here or fetched.
-#     # service_profiles: List[ServiceProfile] = field(default_factory=list)
-#     key_overall_privacy_insights: List[str] = field(default_factory=list)
-#     # Example insights: "3 services engage in data selling.", "Average service risk score is Medium (55)."
+@dataclass
+class UserPrivacyProfile:
+    user_id: str = "default_user" # Conceptual, unique to the user - for now, a single global profile
+    overall_privacy_risk_score: Optional[int] = None # Numerical, 0-100, None if no services
+    key_privacy_insights: List[str] = field(default_factory=list)
+    total_services_analyzed: int = 0
+    total_high_risk_services_count: int = 0
+    total_medium_risk_services_count: int = 0
+    total_low_risk_services_count: int = 0
+    last_aggregated_at: Optional[str] = None # ISO timestamp string
 
-# For the current implementation phase, the `get_all_service_profiles_for_dashboard()` function
-# in `dashboard_data_manager.py` provides the list of service profiles that will populate the dashboard.
-# An aggregated UserPrivacyProfile object stored separately is deferred.
+    def __post_init__(self):
+        # Ensure risk score is within bounds if not None
+        if self.overall_privacy_risk_score is not None:
+            self.overall_privacy_risk_score = max(0, min(100, int(self.overall_privacy_risk_score)))

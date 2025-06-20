@@ -19,7 +19,12 @@ Privacy Protocol is an application designed to analyze privacy policy text. It i
          *   **View Past Analyses:** Navigate to the `/history` page to see a list of all your saved analyses, sorted by date. From there, you can click to view the full results of any specific past analysis.
          *   **Basic Change Detection:** When analyzing new text, it's compared against the most recent version in history. Differences are highlighted on the results page.
          *   **Storage:** Policy history is stored locally in JSON files within the `privacy_protocol/policy_history/` directory.
-     *   **Privacy Dashboard (`/dashboard`):** Provides an overview of all analyzed services. Each service entry (derived from your analysis history) displays its name/identifier, the latest analysis date, the calculated `Service Risk Score` (0-100, color-coded for Low/Medium/High risk), and a direct link to its detailed historical analysis. The dashboard also includes a section for placeholder "Key Privacy Insights". (Note: An overall aggregated risk score for your entire profile is a planned future feature.)
+     *   **Privacy Dashboard (`/dashboard`):** The dashboard provides a consolidated overview of your privacy posture based on all policies you've analyzed:
+         *   **Overall User Privacy Risk Score:** A prominent score (0-100, color-coded Green/Yellow/Red) gives you an at-a-glance understanding of your aggregated privacy risk across all tracked services. This is currently calculated as an average of the individual service risk scores.
+         *   **Key Privacy Insights:** The dashboard synthesizes basic insights from your analyzed policies, such as highlighting if services have high-risk scores. (Note: Insight generation is currently basic and will be enhanced in the future).
+         *   **Aggregated Statistics:** View totals for services analyzed, and counts of services falling into High, Medium, and Low risk categories based on their individual scores.
+         *   **Per-Service Breakdown:** See a list of each individual policy analysis session, its specific `Service Risk Score` (0-100, color-coded), the date of analysis, and a link to its detailed results page.
+         *   **Always Up-to-Date:** The dashboard data, including the overall score and service list, is automatically updated each time you analyze a new policy or re-analyze an existing one.
 
 ## Prerequisites
 

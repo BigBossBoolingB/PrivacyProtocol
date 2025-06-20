@@ -58,6 +58,26 @@
         .risk-score-value { font-weight: bold; font-size: 1.2em; }
         .risk-category-label { font-weight: bold; font-size: 1em; }
         .service-item-placeholder { padding: 10px; border: 1px dashed #ccc; text-align: center; color: #777; margin-bottom:10px; }
+
+        /* Styles for Overall Risk Score Section */
+        .overall-risk-score-section {
+            text-align: center;
+            margin-bottom: 25px;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .overall-score-value {
+            font-size: 2.5em; /* Larger for overall score */
+            font-weight: bold;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .profile-meta, .profile-counts {
+            font-size: 0.9em;
+            color: #555; /* Adjusted to be visible on colored backgrounds */
+        }
+        .profile-counts { margin-top: 5px; }
+
     </style>
 </head>
 <body>
@@ -72,16 +92,47 @@
             </ul>
         </nav>
 
+        {% if user_profile and user_profile.overall_privacy_risk_score is not none %}
+            {% set overall_score = user_profile.overall_privacy_risk_score | round | int %}
+            {% set overall_score_color_class_suffix = 'low' %}
+            {% if overall_score > 66 %}
+                {% set overall_score_color_class_suffix = 'high' %}
+            {% elif overall_score > 33 %}
+                {% set overall_score_color_class_suffix = 'medium' %}
+            {% endif %}
+
+            <div class="overall-risk-score-section risk-score-{{ overall_score_color_class_suffix }}-bg">
+                <h2>Overall Privacy Posture</h2>
+                <p class="overall-score-value risk-score-{{ overall_score_color_class_suffix }}-text">{{ overall_score }}/100</p>
+                <p class="risk-category-label risk-score-{{ overall_score_color_class_suffix }}-text">
+                    {% if overall_score_color_class_suffix == 'high' %}High Risk Profile
+                    {% elif overall_score_color_class_suffix == 'medium' %}Medium Risk Profile
+                    {% else %}Low Risk Profile
+                    {% endif %}
+                </p>
+                <p class="profile-meta">Across {{ user_profile.total_services_analyzed }} analyzed service(s). Last updated: {{ user_profile.last_aggregated_at | replace('T', ' ') | replace('Z', '') if user_profile.last_aggregated_at else 'N/A' }}</p>
+                <p class="profile-counts">
+                    High Risk Services: {{ user_profile.total_high_risk_services_count }} |
+                    Medium Risk Services: {{ user_profile.total_medium_risk_services_count }} |
+                    Low Risk Services: {{ user_profile.total_low_risk_services_count }}
+                </p>
+            </div>
+        {% else %}
+            <div class="overall-risk-score-section" style="text-align: center; margin-bottom: 20px; padding:10px; background-color:#eee;">
+                <p>Analyze some policies to see your overall privacy posture here.</p>
+            </div>
+        {% endif %}
+
         <div class="insights-section">
-            <h3>Key Privacy Insights (Placeholders)</h3>
-            {% if key_privacy_insights %}
+            <h3>Key Privacy Insights</h3>
+            {% if user_profile and user_profile.key_privacy_insights %}
                 <ul>
-                    {% for insight in key_privacy_insights %}
+                    {% for insight in user_profile.key_privacy_insights %}
                         <li>{{ insight }}</li>
                     {% endfor %}
                 </ul>
             {% else %}
-                <p>No specific insights to display at this time.</p>
+                <p>No specific insights to display at this time. Analyze more policies to generate insights.</p>
             {% endif %}
         </div>
 

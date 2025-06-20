@@ -1,7 +1,7 @@
 import json
 import os
-from datetime import datetime # Not strictly needed here but often useful with timestamps
-from .dashboard_models import ServiceProfile
+from datetime import datetime, timezone # Added timezone
+from .dashboard_models import ServiceProfile, UserPrivacyProfile # Added UserPrivacyProfile
 from typing import List # Import List from typing
 from .policy_history_manager import POLICY_HISTORY_DIR # For consistency in user_data path logic
 from urllib.parse import urlparse # To derive service_id/name from URL
@@ -9,6 +9,9 @@ from urllib.parse import urlparse # To derive service_id/name from URL
 USER_DATA_DIR = os.path.join(os.path.dirname(POLICY_HISTORY_DIR), 'user_data') # Puts it alongside, not inside policy_history
 SERVICE_PROFILES_FILENAME = "service_profiles.json"
 SERVICE_PROFILES_PATH = os.path.join(USER_DATA_DIR, SERVICE_PROFILES_FILENAME)
+
+USER_PRIVACY_PROFILE_FILENAME = "user_privacy_profile.json"
+USER_PRIVACY_PROFILE_PATH = os.path.join(USER_DATA_DIR, USER_PRIVACY_PROFILE_FILENAME)
 
 def _ensure_user_data_dir_exists():
     os.makedirs(USER_DATA_DIR, exist_ok=True)
@@ -109,6 +112,101 @@ def get_all_service_profiles_for_dashboard() -> List[ServiceProfile]:
     # Handle potential None or empty string timestamps if data can be corrupt, though load_service_profiles should ensure valid objects
     profiles.sort(key=lambda p: p.latest_analysis_timestamp if p.latest_analysis_timestamp else '', reverse=True)
     return profiles
+
+def calculate_and_save_user_privacy_profile(user_id: str = "default_user") -> UserPrivacyProfile | None:
+    _ensure_user_data_dir_exists()
+    service_profiles = load_service_profiles() # Load all current service profiles
+
+    if not service_profiles:
+        # No services, create a default/empty UserPrivacyProfile
+        profile = UserPrivacyProfile(
+            user_id=user_id,
+            overall_privacy_risk_score=None, # Or 0, depending on desired representation for no services
+            key_privacy_insights=["No services analyzed yet."],
+            total_services_analyzed=0,
+            total_high_risk_services_count=0,
+            total_medium_risk_services_count=0,
+            total_low_risk_services_count=0,
+            last_aggregated_at=datetime.now(timezone.utc).isoformat()
+        )
+        try:
+            with open(USER_PRIVACY_PROFILE_PATH, 'w') as f:
+                json.dump(profile.__dict__, f, indent=4)
+            return profile
+        except IOError as e:
+            print(f"Error saving empty user privacy profile: {e}")
+            return None
+
+    total_services_analyzed = len(service_profiles)
+    sum_of_risk_scores = 0
+    total_high_risk_services = 0
+    total_medium_risk_services = 0
+    total_low_risk_services = 0
+
+    # Insights generation can be more sophisticated later
+    key_insights = set() # Use a set to avoid duplicate generic insights
+
+    for sp in service_profiles:
+        sum_of_risk_scores += sp.latest_service_risk_score
+        if sp.latest_service_risk_score > 66:
+            total_high_risk_services += 1
+            if sp.service_name:
+                key_insights.add(f"{sp.service_name} has a High privacy risk score ({sp.latest_service_risk_score}/100). Review its details.")
+            else:
+                key_insights.add(f"An analyzed policy has a High privacy risk score ({sp.latest_service_risk_score}/100).")
+        elif sp.latest_service_risk_score > 33:
+            total_medium_risk_services += 1
+        else:
+            total_low_risk_services += 1
+
+        # Deferring more granular cross-service insights for now.
+        pass
+
+    overall_score = round(sum_of_risk_scores / total_services_analyzed) if total_services_analyzed > 0 else None
+
+    if not key_insights:
+        if overall_score is not None and overall_score <= 33:
+            key_insights.add("Your overall privacy posture appears relatively strong based on analyzed services.")
+        elif overall_score is not None and overall_score > 66:
+            key_insights.add("Several services show high risk scores. It's recommended to review them.")
+        else:
+            key_insights.add("Review individual service risk scores to understand your privacy posture.")
+
+    user_profile = UserPrivacyProfile(
+        user_id=user_id,
+        overall_privacy_risk_score=overall_score,
+        key_privacy_insights=list(key_insights)[:3], # Limit to top 3 insights for now
+        total_services_analyzed=total_services_analyzed,
+        total_high_risk_services_count=total_high_risk_services,
+        total_medium_risk_services_count=total_medium_risk_services,
+        total_low_risk_services_count=total_low_risk_services,
+        last_aggregated_at=datetime.now(timezone.utc).isoformat()
+    )
+
+    try:
+        with open(USER_PRIVACY_PROFILE_PATH, 'w') as f:
+            json.dump(user_profile.__dict__, f, indent=4)
+        print(f"User privacy profile saved to: {USER_PRIVACY_PROFILE_PATH}")
+        return user_profile
+    except IOError as e:
+        print(f"Error saving user privacy profile: {e}")
+        return None
+
+def load_user_privacy_profile(user_id: str = "default_user") -> UserPrivacyProfile | None:
+    """Loads the UserPrivacyProfile from its JSON file."""
+    if not os.path.exists(USER_PRIVACY_PROFILE_PATH):
+        # If profile doesn't exist, calculate and save it for the first time.
+        return calculate_and_save_user_privacy_profile(user_id)
+    try:
+        with open(USER_PRIVACY_PROFILE_PATH, 'r') as f:
+            data = json.load(f)
+            if 'user_id' not in data:
+                print(f"Corrupted user profile file {USER_PRIVACY_PROFILE_PATH}, attempting to rebuild.")
+                return calculate_and_save_user_privacy_profile(user_id)
+            return UserPrivacyProfile(**data)
+    except (IOError, json.JSONDecodeError) as e:
+        print(f"Error loading user privacy profile from {USER_PRIVACY_PROFILE_PATH}: {e}. Attempting to rebuild.")
+        return calculate_and_save_user_privacy_profile(user_id)
 
 if __name__ == '__main__':
     print("Dashboard Data Manager - Service Profile Test")
@@ -212,3 +310,21 @@ if __name__ == '__main__':
     # Clean up again after __main__ tests
     if os.path.exists(SERVICE_PROFILES_PATH):
         os.remove(SERVICE_PROFILES_PATH)
+
+    print("\n--- Testing UserPrivacyProfile calculation and loading ---")
+    user_profile_instance = calculate_and_save_user_privacy_profile()
+    if user_profile_instance:
+        print("User profile calculated and saved:")
+        print(f"  Overall Score: {user_profile_instance.overall_privacy_risk_score}")
+        print(f"  Total Services: {user_profile_instance.total_services_analyzed}")
+        print(f"  High Risk Services: {user_profile_instance.total_high_risk_services_count}")
+        print(f"  Insights: {user_profile_instance.key_privacy_insights}")
+
+        loaded_user_profile = load_user_privacy_profile()
+        if loaded_user_profile:
+            print("User profile loaded successfully:")
+            print(f"  Loaded Overall Score: {loaded_user_profile.overall_privacy_risk_score}")
+            assert loaded_user_profile.overall_privacy_risk_score == user_profile_instance.overall_privacy_risk_score
+
+    if os.path.exists(USER_PRIVACY_PROFILE_PATH):
+        os.remove(USER_PRIVACY_PROFILE_PATH)
