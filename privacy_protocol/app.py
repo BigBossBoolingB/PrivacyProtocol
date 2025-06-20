@@ -130,10 +130,14 @@ def analyze():
                             page_title="Live Analysis Results") # Keep existing dynamic title logic if any
 
 # Route for listing historical analyses
-@app.route('/history', endpoint='history_list')
+@app.route('/history', endpoint='history_list_route_function') # Ensure endpoint name matches url_for calls
 def history_list_route_function():
-    policies = list_analyzed_policies()
-    return render_template('history.html', policies=policies, page_title="Analysis History")
+    service_profiles = get_all_service_profiles_for_dashboard() # This loads and sorts ServiceProfiles
+    return render_template(
+        'history.html',
+        service_profiles=service_profiles,
+        page_title="Policy Analysis History"
+    )
 
 @app.route('/history/view/<policy_identifier>')
 def view_historical_analysis(policy_identifier):

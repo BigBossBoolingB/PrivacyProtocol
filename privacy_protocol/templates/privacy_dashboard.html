@@ -78,19 +78,41 @@
         }
         .profile-counts { margin-top: 5px; }
 
+        /* Global Navigation Styles */
+        .global-nav {
+            background-color: #333;
+            padding: 10px 0;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .global-nav ul {
+            list-style-type: none;
+            padding: 0;
+            text-align: center;
+            margin: 0;
+        }
+        .global-nav ul li {
+            display: inline;
+            margin: 0 15px;
+        }
+        .global-nav ul li a {
+            text-decoration: none;
+            color: #fff;
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 3px;
+        }
+        .global-nav ul li a:hover, .global-nav ul li a.active {
+            background-color: #555;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>{{ page_title if page_title else "Your Privacy Dashboard" }}</h1>
 
-        <nav>
-            <ul>
-                <li><a href="{{ url_for('index') }}">Analyze New Policy</a></li>
-                <li><a href="{{ url_for('history_list_route_function') }}">View History</a></li>
-                <li><a href="{{ url_for('preferences') }}">Settings</a></li>
-            </ul>
-        </nav>
+        {% include '_navigation.html' %}
 
         {% if user_profile and user_profile.overall_privacy_risk_score is not none %}
             {% set overall_score = user_profile.overall_privacy_risk_score | round | int %}

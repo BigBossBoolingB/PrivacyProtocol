@@ -346,22 +346,61 @@ class TestWebApp(unittest.TestCase):
 
     # --- /history and /history/view routes ---
     def test_history_list_page_empty(self):
-        response = self.client.get('/history')
+        # setUp ensures service_profiles.json is cleared initially
+        with app.test_request_context(): # For url_for
+            response = self.client.get(url_for('history_list_route_function'))
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"No policy analyses found in history.", response.data)
+        self.assertIn(b"No policy analyses found in history. Analyze some policies to see them here.", response.data)
 
-    def test_history_list_page_with_items(self):
-        id1, data1 = self._create_dummy_historical_analysis("item1")
-        time.sleep(0.001) # ensure different timestamp if generating another
-        id2, data2 = self._create_dummy_historical_analysis("item2")
+    def test_history_list_page_with_service_profiles(self):
+        # Create ServiceProfile data directly for this test, as the history page now reads from service_profiles.json
+        ts1_iso = datetime(2024, 3, 10, 10, 0, 0, tzinfo=timezone.utc).isoformat()
+        ts2_iso = datetime(2024, 3, 11, 12, 0, 0, tzinfo=timezone.utc).isoformat() # More recent
 
-        response = self.client.get('/history')
+        profile1 = ServiceProfile(
+            service_id='service1.com', service_name='Service One',
+            latest_analysis_timestamp=ts1_iso, latest_policy_identifier='pid_s1',
+            latest_service_risk_score=25, # Low risk
+            num_total_clauses=10, high_concern_count=0, medium_concern_count=0, low_concern_count=1,
+            source_url='http://service1.com'
+        )
+        profile2 = ServiceProfile(
+            service_id='service2.com', service_name='Service Two',
+            latest_analysis_timestamp=ts2_iso, latest_policy_identifier='pid_s2',
+            latest_service_risk_score=80, # High risk
+            num_total_clauses=15, high_concern_count=2, medium_concern_count=1, low_concern_count=0,
+            source_url='http://service2.com'
+        )
+        # Save profiles - get_all_service_profiles_for_dashboard sorts by timestamp desc
+        dashboard_data_manager.save_service_profiles([profile1, profile2])
+
+        with app.test_request_context(): # For url_for
+            response = self.client.get(url_for('history_list_route_function'))
         self.assertEqual(response.status_code, 200)
-        self.assertIn(bytes(id1, 'utf-8'), response.data)
-        self.assertIn(bytes(data1['source_url'], 'utf-8'), response.data)
-        self.assertIn(bytes(id2, 'utf-8'), response.data)
-        self.assertIn(bytes(data2['source_url'], 'utf-8'), response.data)
-        self.assertIn(b'View Details', response.data)
+        self.assertIn(b"Policy Analysis History", response.data)
+
+        # Verify profile2 (more recent) appears first and correctly
+        self.assertIn(b"Service Two", response.data)
+        self.assertIn(b"service2.com", response.data) # service_id
+        self.assertIn(b"2024-03-11 12:00:00", response.data)
+        self.assertIn(b"<span class=\"risk-score-value risk-score-high-text\">80/100</span>", response.data)
+        self.assertIn(b"<span class=\"risk-category-label risk-score-high-text\">High Risk</span>", response.data)
+        self.assertIn(bytes(url_for('view_historical_analysis', policy_identifier='pid_s2'), 'utf-8'), response.data)
+        self.assertIn(b'class="history-item risk-score-high-bg"', response.data)
+
+
+        # Verify profile1 appears second and correctly
+        self.assertIn(b"Service One", response.data)
+        self.assertIn(b"service1.com", response.data) # service_id
+        self.assertIn(b"2024-03-10 10:00:00", response.data)
+        self.assertIn(b"<span class=\"risk-score-value risk-score-low-text\">25/100</span>", response.data)
+        self.assertIn(b"<span class=\"risk-category-label risk-score-low-text\">Low Risk</span>", response.data)
+        self.assertIn(bytes(url_for('view_historical_analysis', policy_identifier='pid_s1'), 'utf-8'), response.data)
+        self.assertIn(b'class="history-item risk-score-low-bg"', response.data)
+
+        # Check order
+        text_data = response.data.decode('utf-8')
+        self.assertTrue(text_data.find("Service Two") < text_data.find("Service One"))
 
     def test_view_historical_analysis_found(self):
         # Use specific values for the dummy analysis to make assertions precise

@@ -12,22 +12,47 @@
         input[type="submit"] { display: block; width: 100%; padding: 10px; background-color: #5cb85c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
         input[type="submit"]:hover { background-color: #4cae4c; }
         label { display: block; margin-bottom: 5px; font-weight: bold; }
+
+        /* Global Navigation Styles */
+        .global-nav {
+            background-color: #333;
+            padding: 10px 0;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .global-nav ul {
+            list-style-type: none;
+            padding: 0;
+            text-align: center;
+            margin: 0;
+        }
+        .global-nav ul li {
+            display: inline;
+            margin: 0 15px;
+        }
+        .global-nav ul li a {
+            text-decoration: none;
+            color: #fff;
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 3px;
+        }
+        .global-nav ul li a:hover, .global-nav ul li a.active {
+            background-color: #555;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        {% include '_navigation.html' %}
         <h1>Privacy Policy Analyzer</h1>
         <form action="{{ url_for('analyze') }}" method="POST">
             <label for="policy_text">Paste Privacy Policy Text:</label>
             <textarea name="policy_text" id="policy_text" rows="15" placeholder="Enter privacy policy text here..."></textarea>
             <input type="submit" value="Analyze Policy">
         </form>
-        <hr style="margin-top: 20px; margin-bottom: 20px;">
-        <p style="text-align: center;">
-            <a href="{{ url_for('dashboard_overview') }}">View Dashboard</a> |
-            <a href="{{ url_for('history_list') }}">View Analysis History</a> |
-            <a href="{{ url_for('preferences') }}">User Preferences</a>
-        </p>
+        <!-- Removed old navigation paragraph -->
     </div>
 </body>
 </html>

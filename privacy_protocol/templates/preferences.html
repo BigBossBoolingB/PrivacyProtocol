@@ -16,10 +16,40 @@
         .nav-link { display: block; text-align: center; margin-top: 20px; }
         .flash-message { padding: 10px; margin-bottom: 15px; border-radius: 4px; }
         .flash-success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+
+        /* Global Navigation Styles */
+        .global-nav {
+            background-color: #333;
+            padding: 10px 0;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .global-nav ul {
+            list-style-type: none;
+            padding: 0;
+            text-align: center;
+            margin: 0;
+        }
+        .global-nav ul li {
+            display: inline;
+            margin: 0 15px;
+        }
+        .global-nav ul li a {
+            text-decoration: none;
+            color: #fff;
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 3px;
+        }
+        .global-nav ul li a:hover, .global-nav ul li a.active {
+            background-color: #555;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        {% include '_navigation.html' %}
         <h1>Your Privacy Preferences</h1>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -43,10 +73,7 @@
             {% endfor %}
             <button type="submit" class="submit-btn">Save Preferences</button>
         </form>
-        <p class="nav-link">
-            <a href="{{ url_for('dashboard_overview') }}">Dashboard</a> |
-            <a href="{{ url_for('index') }}">Back to Analyzer</a>
-        </p>
+        <!-- Navigation links are now handled by the global navigation -->
     </div>
 </body>
 </html>

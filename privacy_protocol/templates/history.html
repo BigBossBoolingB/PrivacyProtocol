@@ -2,68 +2,126 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>{{ page_title if page_title else "Analysis History" }}</title>
+    <title>{{ page_title if page_title else "Policy Analysis History" }}</title>
     <style>
         body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
         .container { max-width: 900px; margin: auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        h1 { color: #333; text-align: center; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f0f0f0; }
-        tr:nth-child(even) { background-color: #f9f9f9; }
-        a { color: #007bff; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .no-history { text-align: center; color: #777; margin-top: 20px; }
-        .nav-link { display: block; text-align: center; margin-top: 30px; font-size: 1.1em; }
-         .flash-message { padding: 10px; margin-bottom: 15px; border-radius: 4px; }
+        h1 { color: #333; text-align: center; margin-bottom: 20px; }
+        .history-item {
+            background-color: #f9f9f9;
+            border: 1px solid #eee;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+        .history-item h4 { margin-top: 0; margin-bottom: 5px; }
+        .history-item p { margin: 5px 0; font-size: 0.9em; }
+        .details-link {
+            display: inline-block; margin-top: 10px; padding: 8px 12px;
+            background-color: #007bff; color: white; text-decoration: none;
+            border-radius: 4px; font-size: 0.9em;
+        }
+        .details-link:hover { background-color: #0056b3; }
+        .no-history { text-align: center; color: #777; }
+
+        /* Risk score color classes */
+        .risk-score-low-bg { background-color: #e6ffed; border-left: 5px solid #28a745 !important; }
+        .risk-score-medium-bg { background-color: #fff3cd; border-left: 5px solid #ffc107 !important; }
+        .risk-score-high-bg { background-color: #f8d7da; border-left: 5px solid #dc3545 !important; }
+        .risk-score-low-text { color: #155724; }
+        .risk-score-medium-text { color: #856404; }
+        .risk-score-high-text { color: #721c24; }
+        .risk-score-value { font-weight: bold; font-size: 1.1em; }
+        .risk-category-label { font-weight: bold; font-size: 0.95em; }
+
+        /* Flash messages (copied from old history.html) */
+        .flash-message { padding: 10px; margin-bottom: 15px; border-radius: 4px; }
         .flash-error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+        /* Global Navigation Styles */
+        .global-nav {
+            background-color: #333;
+            padding: 10px 0;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .global-nav ul {
+            list-style-type: none;
+            padding: 0;
+            text-align: center;
+            margin: 0;
+        }
+        .global-nav ul li {
+            display: inline;
+            margin: 0 15px;
+        }
+        .global-nav ul li a {
+            text-decoration: none;
+            color: #fff;
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 3px;
+        }
+        .global-nav ul li a:hover, .global-nav ul li a.active {
+            background-color: #555;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>{{ page_title if page_title else "Analysis History" }}</h1>
+        {% include '_navigation.html' %}
+        <h1>{{ page_title }}</h1>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
-          {% if messages %}
-            {% for category, message in messages %}
-              {% if category == 'error' %}
-              <div class="flash-message flash-{{ category }}">{{ message }}</div>
-              {% endif %}
-            {% endfor %}
-          {% endif %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    {# Ensure flash category 'error' is handled, others can be styled too #}
+                    <div class="flash-message flash-{{ category if category else 'info' }}"
+                         style="padding: 10px; margin-bottom: 15px; border-radius: 4px;
+                                {% if category == 'error' %} background-color: #f8d7da; color: #721c24; border:1px solid #f5c6cb;
+                                {% else %} background-color: #e9f5ff; border:1px solid #cce4ff; {% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
         {% endwith %}
 
-        {% if policies %}
-            <table>
-                <thead>
-                    <tr>
-                        <th>Analysis ID (Timestamp)</th>
-                        <th>Analyzed On (UTC)</th>
-                        <th>Source / Name</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in policies %}
-                        <tr>
-                            <td>{{ item.identifier }}</td>
-                            <td>{{ item.timestamp[:19].replace('T', ' ') if item.timestamp else 'N/A' }}</td>
-                            <td>{{ item.source_url if item.source_url else 'N/A' }}</td>
-                            <td>
-                                <a href="{{ url_for('view_historical_analysis', policy_identifier=item.identifier) }}">View Details</a>
-                                {# Future: | <a href="#">Compare</a> #}
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        {% if service_profiles %}
+            <div class="history-list">
+                {% for profile in service_profiles %}
+                    {% set score = profile.latest_service_risk_score | round | int %}
+                    {% set score_color_class_suffix = 'low' %}
+                    {% if score > 66 %}
+                        {% set score_color_class_suffix = 'high' %}
+                    {% elif score > 33 %}
+                        {% set score_color_class_suffix = 'medium' %}
+                    {% endif %}
+
+                    <div class="history-item risk-score-{{ score_color_class_suffix }}-bg">
+                        <h4>{{ profile.service_name }}
+                            <span style="font-size:0.8em; color:#555;">(Service ID: {{ profile.service_id }})</span>
+                        </h4>
+                        <p><strong>Last Analyzed Version:</strong> {{ profile.latest_policy_identifier }}
+                           (on {{ profile.latest_analysis_timestamp | replace('T', ' ') | replace('Z', '') }})</p>
+                        <p><strong>Source:</strong> {{ profile.source_url if profile.source_url else 'N/A' }}</p>
+                        <p><strong>Risk Score for this Version:</strong>
+                            <span class="risk-score-value risk-score-{{ score_color_class_suffix }}-text">{{ score }}/100</span>
+                            <span class="risk-category-label risk-score-{{ score_color_class_suffix }}-text">
+                                {% if score_color_class_suffix == 'high' %}High Risk
+                                {% elif score_color_class_suffix == 'medium' %}Medium Risk
+                                {% else %}Low Risk
+                                {% endif %}
+                            </span>
+                        </p>
+                        <p><a href="{{ url_for('view_historical_analysis', policy_identifier=profile.latest_policy_identifier) }}" class="details-link">View Details of this Version</a></p>
+                    </div>
+                {% endfor %}
+            </div>
         {% else %}
-            <p class="no-history">No policy analyses found in history.</p>
+            <p class="no-history">No policy analyses found in history. Analyze some policies to see them here.</p>
         {% endif %}
-        <p class="nav-link">
-            <a href="{{ url_for('dashboard_overview') }}">Dashboard</a> |
-            <a href="{{ url_for('index') }}">Analyze New Policy</a>
-        </p>
+        <!-- Global navigation is at the top -->
     </div>
 </body>
 </html>

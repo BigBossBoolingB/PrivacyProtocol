@@ -97,10 +97,40 @@
         .back-link { display: inline-block; margin-top: 20px; padding: 10px 15px; background-color: #5bc0de; color: white; text-decoration: none; border-radius: 4px; }
         .back-link:hover { background-color: #46b8da; }
         .note { color: orange; margin-top: 20px; font-size: 0.9em; }
+
+        /* Global Navigation Styles */
+        .global-nav {
+            background-color: #333;
+            padding: 10px 0;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .global-nav ul {
+            list-style-type: none;
+            padding: 0;
+            text-align: center;
+            margin: 0;
+        }
+        .global-nav ul li {
+            display: inline;
+            margin: 0 15px;
+        }
+        .global-nav ul li a {
+            text-decoration: none;
+            color: #fff;
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 3px;
+        }
+        .global-nav ul li a:hover, .global-nav ul li a.active {
+            background-color: #555;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        {% include '_navigation.html' %}
         <h1>{{ page_title if page_title else "Analysis Results" }}</h1>
 
         {% if risk_assessment %}
@@ -187,11 +217,13 @@
         {% endif %}
 
         <p style="text-align: center; margin-top: 30px;">
-            <a href="{{ url_for('dashboard_overview') }}">Dashboard</a> |
+            {# Navigation to Dashboard, History, or Analyze New is now handled by global nav #}
+            {# Contextual back link for historical view can remain if desired, or be removed #}
         {% if is_historical_view %}
-            <a href="{{ url_for('history_list') }}">Back to History List</a>
+            <a href="{{ url_for('history_list_route_function') }}" class="back-link">&larr; Back to History List</a>
         {% else %}
-            <a href="{{ url_for('index') }}">Analyze Another Policy</a>
+            {# <a href="{{ url_for('index') }}" class="back-link">&larr; Analyze Another Policy</a> #}
+            {# This specific link might feel redundant if global nav is prominent #}
         {% endif %}
         </p>
     </div>
