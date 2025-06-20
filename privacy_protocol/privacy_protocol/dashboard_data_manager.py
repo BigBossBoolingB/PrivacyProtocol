@@ -68,13 +68,26 @@ def update_or_create_service_profile(policy_analysis_data: dict):
 
     policy_identifier = policy_analysis_data['policy_identifier']
     source_url = policy_analysis_data.get('source_url', 'Pasted Text Input')
-    service_id, service_name = get_service_id_from_source(source_url, policy_identifier)
+    # service_id and auto_generated_service_name are derived based on source_url or policy_identifier
+    service_id, auto_generated_service_name = get_service_id_from_source(source_url, policy_identifier)
 
     risk_assessment = policy_analysis_data.get('risk_assessment', {})
+    profiles = load_service_profiles()
+    existing_profile_index = -1
+    existing_user_defined_name = None # Initialize
 
-    new_profile_data = {
+    for i, profile in enumerate(profiles):
+        if profile.service_id == service_id:
+            existing_profile_index = i
+            existing_user_defined_name = profile.user_defined_name # Capture existing user-defined name
+            break
+
+    # Data for the profile, whether new or an update to an existing one
+    profile_data_for_update = {
         'service_id': service_id,
-        'service_name': service_name,
+        # service_name is the auto-generated one. user_defined_name will override display if set.
+        'service_name': auto_generated_service_name,
+        'user_defined_name': existing_user_defined_name, # Preserve or init to None if new
         'latest_analysis_timestamp': policy_analysis_data['analysis_timestamp'],
         'latest_policy_identifier': policy_identifier,
         'latest_service_risk_score': risk_assessment.get('service_risk_score', 0),
@@ -84,25 +97,26 @@ def update_or_create_service_profile(policy_analysis_data: dict):
         'low_concern_count': risk_assessment.get('low_concern_count', 0),
         'source_url': source_url
     }
-    new_profile = ServiceProfile(**new_profile_data)
 
-    profiles = load_service_profiles()
-    updated = False
-    for i, profile in enumerate(profiles):
-        if profile.service_id == new_profile.service_id:
-            # Update existing if new analysis is more recent
-            if new_profile.latest_analysis_timestamp >= profile.latest_analysis_timestamp:
-                profiles[i] = new_profile
-            updated = True
-            break
-
-    if not updated:
+    if existing_profile_index != -1:
+        # Existing profile found, check if this analysis is newer
+        if policy_analysis_data['analysis_timestamp'] >= profiles[existing_profile_index].latest_analysis_timestamp:
+            # Update existing profile, preserving its user_defined_name (already set in profile_data_for_update)
+            profiles[existing_profile_index] = ServiceProfile(**profile_data_for_update)
+            print(f"Service profile for '{auto_generated_service_name}' (ID: {service_id}) updated with newer analysis.")
+        else:
+            # This analysis is older, do not update the existing service profile's latest data
+            print(f"Skipped update for service profile '{auto_generated_service_name}' (ID: {service_id}) as current analysis is older or same timestamp.")
+            # No save needed if no change
+            return # Exit early, no save needed
+    else:
+        # New service profile, user_defined_name will be None by default from profile_data_for_update
+        new_profile = ServiceProfile(**profile_data_for_update)
         profiles.append(new_profile)
+        print(f"New service profile for '{auto_generated_service_name}' (ID: {service_id}) created.")
 
-    # Sort profiles by service_name for consistent storage, can be sorted differently for display
-    profiles.sort(key=lambda p: p.service_name)
+    profiles.sort(key=lambda p: p.service_name) # Sort by auto-generated name for consistent file order
     save_service_profiles(profiles)
-    print(f"Service profile for '{service_name}' (ID: {service_id}) updated/created.")
 
 def get_all_service_profiles_for_dashboard() -> List[ServiceProfile]:
     """Loads all service profiles and sorts them for dashboard display."""
@@ -112,6 +126,24 @@ def get_all_service_profiles_for_dashboard() -> List[ServiceProfile]:
     # Handle potential None or empty string timestamps if data can be corrupt, though load_service_profiles should ensure valid objects
     profiles.sort(key=lambda p: p.latest_analysis_timestamp if p.latest_analysis_timestamp else '', reverse=True)
     return profiles
+
+def set_user_defined_name(service_id: str, new_user_name: str) -> bool:
+    """Sets or updates the user_defined_name for a given service_id."""
+    profiles = load_service_profiles()
+    profile_found = False
+    for profile in profiles:
+        if profile.service_id == service_id:
+            profile.user_defined_name = new_user_name.strip() if new_user_name else None # Store None if empty string after strip
+            profile_found = True
+            break
+
+    if profile_found:
+        save_service_profiles(profiles) # save_service_profiles already prints errors if IOError
+        print(f"User-defined name for service ID '{service_id}' updated to '{new_user_name}'.")
+        return True
+    else:
+        print(f"Service ID '{service_id}' not found. Cannot set user-defined name.")
+        return False
 
 def calculate_and_save_user_privacy_profile(user_id: str = "default_user") -> UserPrivacyProfile | None:
     _ensure_user_data_dir_exists()
@@ -312,7 +344,7 @@ if __name__ == '__main__':
         os.remove(SERVICE_PROFILES_PATH)
 
     print("\n--- Testing UserPrivacyProfile calculation and loading ---")
-    user_profile_instance = calculate_and_save_user_privacy_profile()
+    user_profile_instance = calculate_and_save_user_privacy_profile() # Uses profiles created above
     if user_profile_instance:
         print("User profile calculated and saved:")
         print(f"  Overall Score: {user_profile_instance.overall_privacy_risk_score}")
@@ -325,6 +357,40 @@ if __name__ == '__main__':
             print("User profile loaded successfully:")
             print(f"  Loaded Overall Score: {loaded_user_profile.overall_privacy_risk_score}")
             assert loaded_user_profile.overall_privacy_risk_score == user_profile_instance.overall_privacy_risk_score
+
+    print("\n--- Testing set_user_defined_name ---")
+    # Ensure 'example.com' exists from previous steps or create it
+    if not any(p.service_id == 'example.com' for p in load_service_profiles()):
+        update_or_create_service_profile(sample_analysis_1) # from previous main block setup
+
+    if any(p.service_id == 'example.com' for p in load_service_profiles()):
+        print("Attempting to rename 'example.com' to 'My Favorite Example Site'")
+        rename_success = set_user_defined_name('example.com', 'My Favorite Example Site')
+        if rename_success:
+            renamed_profiles = load_service_profiles()
+            renamed_found = False
+            for p_renamed in renamed_profiles:
+                if p_renamed.service_id == 'example.com':
+                    print(f"  Found: ID='{p_renamed.service_id}', Name='{p_renamed.service_name}', UserDefinedName='{p_renamed.user_defined_name}'")
+                    if p_renamed.user_defined_name == 'My Favorite Example Site':
+                        print("  Rename successful and verified.")
+                        renamed_found = True
+                    else:
+                        print("  Rename FAILED: user_defined_name did not update.")
+                    break
+            if not renamed_found:
+                print("  Rename FAILED: 'example.com' not found after trying to rename.")
+        else:
+            print("  set_user_defined_name call returned False for 'example.com'.")
+
+        print("Attempting to rename non-existent service 'foo.bar'")
+        rename_fail_success = set_user_defined_name('foo.bar', 'No Such Service')
+        if not rename_fail_success:
+            print("  Correctly failed to rename non-existent service.")
+        else:
+            print("  Error: Renamed a non-existent service unexpectedly.")
+    else:
+        print("Skipping set_user_defined_name test in __main__ as 'example.com' was not found.")
 
     if os.path.exists(USER_PRIVACY_PROFILE_PATH):
         os.remove(USER_PRIVACY_PROFILE_PATH)

@@ -4,7 +4,8 @@ from typing import List, Optional
 @dataclass
 class ServiceProfile:
     service_id: str  # Unique identifier (e.g., domain for URLs, or policy_identifier for pasted text for now)
-    service_name: str # Display name (e.g., domain or user-defined, or policy_identifier for now)
+    service_name: str # This is the auto-derived name (domain or 'Pasted Analysis (id)')
+    user_defined_name: Optional[str] = None # New field for user's custom name
     latest_analysis_timestamp: str # ISO string from the latest policy analysis
     latest_policy_identifier: str # The policy_identifier of the latest analysis in history
     latest_service_risk_score: int # The 0-100 score from the latest analysis
@@ -15,6 +16,10 @@ class ServiceProfile:
     # Optional: Add a very short summary of key flagged clauses if easily derivable, or defer.
     # key_flagged_clauses_summary: List[str] = field(default_factory=list)
     source_url: Optional[str] = None # Original source URL if available
+
+    # No explicit to_dict/from_dict needed if using __dict__ for serialization
+    # and **sp_data for deserialization with dataclasses, as long as new fields
+    # have defaults or are handled by the loading logic if missing in old files.
 
 @dataclass
 class UserPrivacyProfile:

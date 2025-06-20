@@ -33,8 +33,9 @@ from .dashboard_data_manager import (
     # save_service_profiles,
     update_or_create_service_profile,
     get_all_service_profiles_for_dashboard,
-    calculate_and_save_user_privacy_profile, # Add this
-    load_user_privacy_profile # Add this
+    calculate_and_save_user_privacy_profile,
+    load_user_privacy_profile,
+    set_user_defined_name # Add this
     # get_service_id_from_source # Likely internal
 )
 
@@ -81,6 +82,7 @@ __all__ = [
     'load_service_profiles',
     'update_or_create_service_profile',
     'get_all_service_profiles_for_dashboard',
-    'calculate_and_save_user_privacy_profile', # Add this
-    'load_user_privacy_profile', # Add this
+    'calculate_and_save_user_privacy_profile',
+    'load_user_privacy_profile',
+    'set_user_defined_name', # Add this
 ]

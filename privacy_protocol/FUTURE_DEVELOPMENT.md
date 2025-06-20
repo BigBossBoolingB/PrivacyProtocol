@@ -64,3 +64,50 @@ This document outlines potential future enhancements for the Privacy Protocol ap
     - Crowdsourcing or expert annotation for clause categorization and risk assessment.
 
 This roadmap provides a high-level overview. Each feature will require detailed planning and iterative development.
+
+## Phase X: Advanced Service Profile Management (Future)
+
+### X.1. Merging or Linking Multiple Analyses for a Single Service
+
+**Objective:** Allow users to consolidate multiple analysis entries (currently separate `ServiceProfile` objects, especially those created from pasted text or different URLs for the same service) under a single, canonical user-defined service. This would provide a more accurate historical view and risk assessment for a service over time, rather than treating each pasted analysis as a unique service.
+
+**Conceptual User Stories:**
+- As a user, I want to select multiple "Pasted Analysis (timestamp)" entries from my dashboard or history that I know are for the same service (e.g., "My Bank App") and merge them, so they appear as one service with a versioned history.
+- As a user, if I analyze a policy from `http://example.com/privacy` and later from `http://www.example.com/legal/privacy-policy`, I want to be able to tell the system these represent the same service.
+
+**Potential Approach & UI Concepts:**
+
+1.  **Service Identification & Grouping:**
+    - When a `ServiceProfile` is created (especially from pasted text), its `service_id` is currently the `policy_identifier` (timestamp). Its `service_name` is "Pasted Analysis (identifier)".
+    - The `user_defined_name` allows users to give it a meaningful name.
+    - **Challenge:** How to link multiple `ServiceProfile` entries that the user *knows* are the same logical service, especially if their `service_id`s are different (e.g., multiple pasted texts, or different URLs for the same service).
+
+2.  **Merge/Link UI Action:**
+    - On the Dashboard or History page, allow selection of multiple `ServiceProfile` entries (e.g., via checkboxes).
+    - Provide a "Merge/Link Selected Services" action button.
+
+3.  **Merge/Link Process:**
+    - **Option A (True Merge - Complex):**
+        - User selects a "primary" `ServiceProfile` whose `service_id` and `user_defined_name` will become canonical.
+        - The `policy_history_identifier`s from the other selected `ServiceProfile`s are associated with this primary service.
+        - This would require a new data model, perhaps a `CanonicalService` that has one `user_defined_name` and a list of associated `policy_identifier`s (from `policy_history`).
+        - The `service_profiles.json` would then store these `CanonicalService` objects.
+        - The dashboard would list `CanonicalService`s. Clicking one would show its latest analysis, and also provide access to the history of all linked policy versions.
+    - **Option B (Linking via User-Defined Name - Simpler):**
+        - When a user renames multiple `ServiceProfile` entries to have the *exact same* `user_defined_name`:
+        - The system could *display* them grouped under this common `user_defined_name` on the dashboard.
+        - Each original `ServiceProfile` (and its `service_id`) would still exist, but the UI would group them.
+        - The dashboard would need logic to identify all profiles with the same `user_defined_name` and present them as versions/analyses of one service.
+        - This is less about data merging and more about display-time grouping.
+
+4.  **Impact on Risk Scoring & History:**
+    - If true merging occurs, the `UserPrivacyProfile`'s overall risk score would need to consider only the latest version of each *canonical* service.
+    - Historical views for a canonical service would show all its linked/merged policy versions.
+
+**Considerations for Implementation:**
+- **User Experience:** The merging/linking process must be intuitive and allow for undoing or correction if mistakes are made.
+- **Data Integrity:** Ensuring that policy history links (`latest_policy_identifier`) and other metadata are correctly updated or re-associated is critical.
+- **Complexity:** True data merging (Option A) is significantly more complex than display-time grouping (Option B). Option B might be a more feasible first step towards this concept.
+
+**Initial Focus (if this feature were prioritized):**
+- Likely start with **Option B (Linking via User-Defined Name)** for display grouping, as it requires fewer backend data model changes initially. This would involve enhancing the dashboard to group `ServiceProfile` entries that share the same non-null `user_defined_name`.

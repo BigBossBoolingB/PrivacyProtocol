@@ -8,13 +8,16 @@ from privacy_protocol.llm_services import ACTIVE_LLM_PROVIDER_ENV_VAR, DEFAULT_L
 from privacy_protocol.policy_history_manager import (
     save_policy_analysis,
     generate_policy_identifier,
-    get_latest_policy_analysis, # Added
-    list_analyzed_policies, # Ensured present for history_list route
-    get_policy_analysis,     # Ensured present for view_historical_analysis route
-    get_all_service_profiles_for_dashboard, # Added for dashboard
-    load_user_privacy_profile # Added for dashboard user profile
+    get_latest_policy_analysis,
+    list_analyzed_policies,
+    get_policy_analysis,
+    get_all_service_profiles_for_dashboard,
+    load_user_privacy_profile,
+    set_user_defined_name, # Added for renaming service
+    calculate_and_save_user_privacy_profile # Added for updating profile after rename
 )
-import os # Removed duplicate os import
+from flask import jsonify # Added for API response
+import os
 import difflib # Added
 
 app = Flask(__name__)
@@ -184,6 +187,31 @@ def preferences():
     # For GET request
     user_prefs = load_user_preferences()
     return render_template('preferences.html', preferences=user_prefs, preference_descriptions=PREFERENCE_DESCRIPTIONS)
+
+@app.route('/api/service/<service_id>/set_name', methods=['POST'])
+def api_set_service_name(service_id):
+    if not request.is_json:
+        return jsonify({'success': False, 'message': 'Invalid request: Content-Type must be application/json'}), 400
+
+    data = request.get_json()
+    new_user_defined_name = data.get('user_defined_name')
+
+    if new_user_defined_name is None: # Key must be present, value can be empty string to clear
+        return jsonify({'success': False, 'message': 'Missing new_user_defined_name in request body'}), 400
+
+    if len(new_user_defined_name.strip()) > 100: # Example length limit
+       return jsonify({'success': False, 'message': 'New name is too long (max 100 characters).'}), 400
+
+    success = set_user_defined_name(service_id, new_user_defined_name)
+
+    if success:
+        # After successfully renaming, also update the overall user privacy profile
+        calculate_and_save_user_privacy_profile() # Uses default_user
+        return jsonify({'success': True, 'message': 'Service name updated successfully.'})
+    else:
+        # Distinguish between service not found and other potential save errors if possible
+        # For now, assuming set_user_defined_name returns False mainly for "not found"
+        return jsonify({'success': False, 'message': 'Service not found or failed to update name.'}), 404
 
 @app.route('/dashboard')
 def dashboard_overview():
