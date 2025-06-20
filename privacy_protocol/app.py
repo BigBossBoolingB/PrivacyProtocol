@@ -10,7 +10,8 @@ from privacy_protocol.policy_history_manager import (
     generate_policy_identifier,
     get_latest_policy_analysis, # Added
     list_analyzed_policies, # Ensured present for history_list route
-    get_policy_analysis     # Ensured present for view_historical_analysis route
+    get_policy_analysis,     # Ensured present for view_historical_analysis route
+    get_all_service_profiles_for_dashboard # Added for dashboard
 )
 import os # Removed duplicate os import
 import difflib # Added
@@ -178,6 +179,21 @@ def preferences():
     # For GET request
     user_prefs = load_user_preferences()
     return render_template('preferences.html', preferences=user_prefs, preference_descriptions=PREFERENCE_DESCRIPTIONS)
+
+@app.route('/dashboard')
+def dashboard_overview():
+    service_profiles = get_all_service_profiles_for_dashboard()
+    placeholder_insights = [
+        "Review services with High risk scores regularly.",
+        "Consider using services that offer clear opt-out mechanisms.",
+        "Be mindful of how often policies change for services you use."
+    ]
+    return render_template(
+        'privacy_dashboard.html',
+        service_profiles=service_profiles,
+        key_privacy_insights=placeholder_insights, # Placeholder for now
+        page_title="Privacy Dashboard"
+    )
 
 if __name__ == '__main__':
     # Ensure user_data directory and default files are set up on first run if not already

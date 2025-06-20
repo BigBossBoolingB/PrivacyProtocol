@@ -22,6 +22,12 @@
             <textarea name="policy_text" id="policy_text" rows="15" placeholder="Enter privacy policy text here..."></textarea>
             <input type="submit" value="Analyze Policy">
         </form>
+        <hr style="margin-top: 20px; margin-bottom: 20px;">
+        <p style="text-align: center;">
+            <a href="{{ url_for('dashboard_overview') }}">View Dashboard</a> |
+            <a href="{{ url_for('history_list') }}">View Analysis History</a> |
+            <a href="{{ url_for('preferences') }}">User Preferences</a>
+        </p>
     </div>
 </body>
 </html>

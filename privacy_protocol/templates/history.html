@@ -60,7 +60,10 @@
         {% else %}
             <p class="no-history">No policy analyses found in history.</p>
         {% endif %}
-        <p class="nav-link"><a href="{{ url_for('index') }}">Back to Main Analyzer</a></p>
+        <p class="nav-link">
+            <a href="{{ url_for('dashboard_overview') }}">Dashboard</a> |
+            <a href="{{ url_for('index') }}">Analyze New Policy</a>
+        </p>
     </div>
 </body>
 </html>

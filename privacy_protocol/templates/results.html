@@ -186,11 +186,14 @@
             <p class="note"><strong>Note:</strong> The spaCy NLP model (en_core_web_sm) was not available when the server started. Sentence segmentation and AI categorization quality might be affected or disabled. Keyword spotting might still work based on simpler rules if implemented as a fallback in the interpreter.</p>
         {% endif %}
 
+        <p style="text-align: center; margin-top: 30px;">
+            <a href="{{ url_for('dashboard_overview') }}">Dashboard</a> |
         {% if is_historical_view %}
-            <a href="{{ url_for('history_list') }}" class="back-link">&larr; Back to History List</a>
+            <a href="{{ url_for('history_list') }}">Back to History List</a>
         {% else %}
-            <a href="{{ url_for('index') }}" class="back-link">&larr; Analyze Another Policy</a>
+            <a href="{{ url_for('index') }}">Analyze Another Policy</a>
         {% endif %}
+        </p>
     </div>
 </body>
 </html>

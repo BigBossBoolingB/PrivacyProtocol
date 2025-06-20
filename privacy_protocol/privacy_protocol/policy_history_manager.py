@@ -71,6 +71,18 @@ def save_policy_analysis(identifier: str, policy_text: str, analysis_results: li
         with open(filepath, 'w') as f:
             json.dump(data_to_save, f, indent=4)
         print(f"Policy analysis saved to: {filepath}")
+
+        # After successful save, update the service profile
+        try:
+            # Import here to avoid circular dependency at module load time if dashboard_data_manager
+            # were to ever import something from policy_history_manager globally.
+            from .dashboard_data_manager import update_or_create_service_profile
+            update_or_create_service_profile(data_to_save)
+        except Exception as e_dash:
+            # Log or handle error in updating dashboard profile, but don't let it fail the primary save operation.
+            print(f"Warning: Policy analysis saved, but failed to update service profile for {identifier}: {e_dash}")
+            # Depending on desired robustness, you might want to retry or queue this update.
+
         return filename
     except IOError as e:
         print(f"Error saving policy analysis to {filepath}: {e}")

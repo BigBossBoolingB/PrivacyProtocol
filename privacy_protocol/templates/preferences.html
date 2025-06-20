@@ -43,7 +43,10 @@
             {% endfor %}
             <button type="submit" class="submit-btn">Save Preferences</button>
         </form>
-        <p class="nav-link"><a href="{{ url_for('index') }}">Back to Analyzer</a></p>
+        <p class="nav-link">
+            <a href="{{ url_for('dashboard_overview') }}">Dashboard</a> |
+            <a href="{{ url_for('index') }}">Back to Analyzer</a>
+        </p>
     </div>
 </body>
 </html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ page_title if page_title else "Privacy Dashboard" }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 1000px; margin: auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; text-align: center; }
+        nav ul { list-style-type: none; padding: 0; text-align: center; margin-bottom: 20px; }
+        nav ul li { display: inline; margin-right: 15px; }
+        nav ul li a { text-decoration: none; color: #007bff; font-weight: bold; }
+        nav ul li a:hover { text-decoration: underline; }
+        .insights-section { background-color: #e9f5ff; padding: 15px; margin-bottom: 20px; border-radius: 4px; border: 1px solid #cce4ff; }
+        .insights-section h3 { margin-top: 0; color: #004085; }
+        .services-list-section { margin-top: 20px; }
+        .services-list-section h3 { text-align: left; margin-bottom: 15px; }
+        .service-items-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); /* Responsive grid */
+            gap: 20px;
+        }
+        .service-item {
+            padding: 15px;
+            border-radius: 6px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            /* Background and border colors will be set by risk-score-XXX-bg classes */
+            border: 1px solid #ddd; /* Default border, can be overridden by risk class */
+        }
+        .service-item h4 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #333; /* Or make it inherit from risk color */
+        }
+        .service-item p {
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+        .details-link {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 12px;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .details-link:hover { background-color: #0056b3; }
+
+        /* Risk score styling (ensure these are consistent with results.html or global CSS) */
+        .risk-score-low-bg { background-color: #e6ffed; border-left: 5px solid #28a745 !important; }
+        .risk-score-medium-bg { background-color: #fff3cd; border-left: 5px solid #ffc107 !important; }
+        .risk-score-high-bg { background-color: #f8d7da; border-left: 5px solid #dc3545 !important; }
+        .risk-score-low-text { color: #155724; }
+        .risk-score-medium-text { color: #856404; }
+        .risk-score-high-text { color: #721c24; }
+        .risk-score-value { font-weight: bold; font-size: 1.2em; }
+        .risk-category-label { font-weight: bold; font-size: 1em; }
+        .service-item-placeholder { padding: 10px; border: 1px dashed #ccc; text-align: center; color: #777; margin-bottom:10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ page_title if page_title else "Your Privacy Dashboard" }}</h1>
+
+        <nav>
+            <ul>
+                <li><a href="{{ url_for('index') }}">Analyze New Policy</a></li>
+                <li><a href="{{ url_for('history_list_route_function') }}">View History</a></li>
+                <li><a href="{{ url_for('preferences') }}">Settings</a></li>
+            </ul>
+        </nav>
+
+        <div class="insights-section">
+            <h3>Key Privacy Insights (Placeholders)</h3>
+            {% if key_privacy_insights %}
+                <ul>
+                    {% for insight in key_privacy_insights %}
+                        <li>{{ insight }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No specific insights to display at this time.</p>
+            {% endif %}
+        </div>
+
+        <div class="services-list-section">
+            <h3>Analyzed Services Overview</h3>
+            {% if service_profiles %}
+                <div class="service-items-container">
+                    {% for profile in service_profiles %}
+                        {% set score = profile.latest_service_risk_score | round | int %}
+                        {% set score_color_class_suffix = 'low' %}
+                        {% if score > 66 %}
+                            {% set score_color_class_suffix = 'high' %}
+                        {% elif score > 33 %}
+                            {% set score_color_class_suffix = 'medium' %}
+                        {% endif %}
+
+                        <div class="service-item risk-score-{{ score_color_class_suffix }}-bg">
+                            <h4>{{ profile.service_name }}</h4>
+                            <p>Last Analyzed: {{ profile.latest_analysis_timestamp |replace('T', ' ') | replace('Z', '') }}</p> <!-- Basic timestamp format -->
+                            <p>Risk Score:
+                                <span class="risk-score-value risk-score-{{ score_color_class_suffix }}-text">{{ score }}/100</span>
+                                <span class="risk-category-label risk-score-{{ score_color_class_suffix }}-text">
+                                    {% if score_color_class_suffix == 'high' %}High Risk
+                                    {% elif score_color_class_suffix == 'medium' %}Medium Risk
+                                    {% else %}Low Risk
+                                    {% endif %}
+                                </span>
+                            </p>
+                            <p><a href="{{ url_for('view_historical_analysis', policy_identifier=profile.latest_policy_identifier) }}" class="details-link">View Details</a></p>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="service-item-placeholder">No services analyzed yet. Analyze a policy to see it here.</p>
+            {% endif %}
+        </div>
+
+    </div>
+</body>
+</html>
