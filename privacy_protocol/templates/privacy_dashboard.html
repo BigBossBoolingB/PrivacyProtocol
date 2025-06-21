@@ -78,6 +78,25 @@
         }
         .profile-counts { margin-top: 5px; }
 
+        .global-recommendations-section {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e8f5e9; /* A light green, distinct from insights */
+            border: 1px solid #c8e6c9;
+            border-radius: 4px;
+        }
+        .global-recommendations-section h3 {
+            margin-top: 0;
+            color: #2e7d32; /* Darker green for heading */
+        }
+        .global-recommendations-section ul {
+            padding-left: 20px;
+            margin-bottom: 0;
+        }
+        .global-recommendations-section li {
+            margin-bottom: 8px;
+        }
+
         /* Basic Modal Styles */
         .modal {
             position: fixed; z-index: 1000; left: 0; top: 0;
@@ -207,6 +226,21 @@
                 <p>No specific insights to highlight at this time. Review your services below or analyze more policies.</p>
             {% else %} {# User profile itself couldn't be loaded, or no services analyzed to create one #}
                 <p>Analyze some policies to generate privacy insights and see your overall posture.</p>
+            {% endif %}
+        </div>
+
+        <div class="global-recommendations-section">
+            <h3>Overall Actionable Recommendations</h3>
+            {% if global_recommendations %}
+                <ul>
+                    {% for rec in global_recommendations %}
+                        <li>
+                            <strong>{{ rec.title }}</strong>: {{ rec.text }}
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No specific overall recommendations at this time. Check individual service analyses for clause-specific advice.</p>
             {% endif %}
         </div>
 

@@ -151,6 +151,100 @@ class TestPrivacyInterpreter(unittest.TestCase):
         expected_service_score = round((expected_accumulated / expected_max_possible) * 100) if expected_max_possible else 0
         self.assertEqual(assessment['service_risk_score'], expected_service_score)
 
+    # --- Tests for user_concern_level logic in analyze_text ---
+    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
+    def test_user_concern_level_logic_various_preferences(self):
+        test_cases = [
+            # Preference, AI Category, Restrictive Pref Value, Expected Concern if Restrictive, Expected Concern if Permissive
+            ("data_selling_allowed", "Data Selling", False, "High", "Low"),
+            ("data_sharing_for_ads_allowed", "Data Sharing", False, "High", "Low"),
+            ("cookies_for_tracking_allowed", "Cookies and Tracking Technologies", False, "High", "Low"),
+            ("childrens_privacy_strict", "Childrens Privacy", True, "High", "Low"), # Strict=True is restrictive
+            ("policy_changes_notification_required", "Policy Change", True, "Medium", "Low"), # Required=True is restrictive
+            ("data_sharing_for_analytics_allowed", "Data Sharing", False, "Medium", "Low"),
+            ("data_sharing_for_analytics_allowed", "Data Usage", False, "Medium", "Low"), # Assuming 'Data Usage' is a category
+        ]
+
+        for pref_key, ai_cat, restrictive_val, expected_concern_restrictive, expected_concern_permissive in test_cases:
+            with self.subTest(preference=pref_key, ai_category=ai_cat, restrictive_value=restrictive_val):
+                # Mock the classifier to always return the AI category we want to test
+                with patch.object(self.interpreter.clause_classifier, 'predict', return_value=ai_cat):
+                    # Test restrictive preference
+                    prefs = self.default_prefs.copy()
+                    prefs[pref_key] = restrictive_val
+                    self.interpreter.load_user_preferences(prefs)
+                    results = self.interpreter.analyze_text(f"This clause is about {ai_cat}.")
+                    self.assertEqual(len(results), 1)
+                    self.assertEqual(results[0]['user_concern_level'], expected_concern_restrictive,
+                                     f"Failed for {pref_key}={restrictive_val} with AI Cat {ai_cat}")
+
+                    # Test permissive preference
+                    prefs[pref_key] = not restrictive_val
+                    self.interpreter.load_user_preferences(prefs)
+                    results_permissive = self.interpreter.analyze_text(f"This clause is about {ai_cat}.")
+                    self.assertEqual(len(results_permissive), 1)
+                    self.assertEqual(results_permissive[0]['user_concern_level'], expected_concern_permissive,
+                                     f"Failed for {pref_key}={not restrictive_val} with AI Cat {ai_cat}")
+
+        # Reset to default prefs
+        self.interpreter.load_user_preferences(self.default_prefs.copy())
+
+    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
+    def test_user_concern_level_hierarchy(self):
+        prefs = self.default_prefs.copy()
+        prefs['data_sharing_for_ads_allowed'] = False  # Should set High concern for 'Data Sharing'
+        prefs['data_sharing_for_analytics_allowed'] = False # Should attempt Medium for 'Data Sharing'
+        self.interpreter.load_user_preferences(prefs)
+
+        with patch.object(self.interpreter.clause_classifier, 'predict', return_value="Data Sharing"):
+            results = self.interpreter.analyze_text("This clause is about data sharing for ads and analytics.")
+            self.assertEqual(len(results), 1)
+            # High concern from 'data_sharing_for_ads_allowed' should take precedence
+            self.assertEqual(results[0]['user_concern_level'], "High")
+
+        # Scenario: Analytics (Medium) without Ads (High)
+        prefs['data_sharing_for_ads_allowed'] = True
+        prefs['data_sharing_for_analytics_allowed'] = False
+        self.interpreter.load_user_preferences(prefs)
+        with patch.object(self.interpreter.clause_classifier, 'predict', return_value="Data Sharing"):
+            results = self.interpreter.analyze_text("This clause is about data sharing for analytics only.")
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]['user_concern_level'], "Medium")
+
+        self.interpreter.load_user_preferences(self.default_prefs.copy()) # Reset
+
+    @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
+    def test_user_concern_level_baseline(self):
+        # Default preferences (all permissive for this test, or set them explicitly)
+        prefs = self.default_prefs.copy()
+        for key in prefs: prefs[key] = True # Make all permissive for non-boolean ones
+        prefs['childrens_privacy_strict'] = False
+        prefs['policy_changes_notification_required'] = False
+        self.interpreter.load_user_preferences(prefs)
+
+        # Test 1: AI category is 'Other', no keywords -> 'None'
+        with patch.object(self.interpreter.clause_classifier, 'predict', return_value="Other"):
+            results_other_no_kw = self.interpreter.analyze_text("This is an anodyne sentence.")
+            self.assertEqual(len(results_other_no_kw), 1)
+            self.assertEqual(results_other_no_kw[0]['user_concern_level'], "None")
+
+        # Test 2: AI category is 'Data Collection' (not 'Other'), no keywords, permissive prefs -> 'Low'
+        with patch.object(self.interpreter.clause_classifier, 'predict', return_value="Data Collection"):
+            results_dc_no_kw = self.interpreter.analyze_text("We collect some data.")
+            self.assertEqual(len(results_dc_no_kw), 1)
+            self.assertEqual(results_dc_no_kw[0]['user_concern_level'], "Low")
+
+        # Test 3: AI category is 'Other', but has a keyword -> 'Low'
+        # For this, ensure a keyword exists in self.keywords_data that isn't "Data Selling" to avoid high concern from default prefs
+        self.interpreter.keywords_data["generic_keyword"] = {"explanation": "expl", "category": "General Info"}
+        with patch.object(self.interpreter.clause_classifier, 'predict', return_value="Other"):
+            results_other_with_kw = self.interpreter.analyze_text("This sentence has a generic_keyword.")
+            self.assertEqual(len(results_other_with_kw), 1)
+            self.assertEqual(results_other_with_kw[0]['user_concern_level'], "Low")
+        del self.interpreter.keywords_data["generic_keyword"] # Clean up temp keyword
+
+        self.interpreter.load_user_preferences(self.default_prefs.copy()) # Reset
+
     # --- NLP Dependent Tests ---
     @unittest.skipUnless(SPACY_MODEL_AVAILABLE, "spaCy model 'en_core_web_sm' not available")
     def test_analyze_text_structure_and_ai_category(self):

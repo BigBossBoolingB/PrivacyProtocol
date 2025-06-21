@@ -52,27 +52,27 @@ recommendation_engine = RecommendationEngine() # Initialize RecommendationEngine
 PREFERENCE_DESCRIPTIONS = {
     "data_selling_allowed": {
         "label": "Data Selling",
-        "description": "Allow the service to sell your personal information to third parties."
+        "description": "Controls whether policy clauses related to the selling of your personal data are flagged with high concern. Set to 'Not Allowed' to activate these high concern alerts."
     },
     "data_sharing_for_ads_allowed": {
-        "label": "Data Sharing for Ads",
-        "description": "Allow sharing your data with third parties for advertising purposes."
+        "label": "Data Sharing for Targeted Ads",
+        "description": "Controls if sharing data with third parties specifically for targeted advertising purposes is flagged with high concern. Set to 'Not Allowed' for high concern alerts on such clauses."
     },
     "data_sharing_for_analytics_allowed": {
         "label": "Data Sharing for Analytics",
-        "description": "Allow sharing your data (often anonymized) for service analytics and improvement."
+        "description": "Allow sharing your data (often anonymized) for service analytics and improvement. Setting to 'Not Allowed' may raise concern for clauses about analytics if they seem overly broad or non-essential."
     },
     "cookies_for_tracking_allowed": {
-        "label": "Cookies for Tracking",
-        "description": "Allow the use of cookies and similar technologies for tracking your activity across sites/apps."
+        "label": "Cookies for Cross-Site Tracking",
+        "description": "Controls if the use of cookies and similar technologies for tracking your activity across different websites or apps is flagged with high concern. Set to 'Not Allowed' for high concern alerts."
     },
     "policy_changes_notification_required": {
-        "label": "Policy Change Alerts",
-        "description": "Prioritize alerts if the policy indicates how changes are communicated or if changes are frequent."
+        "label": "Highlight Policy Change Clauses",
+        "description": "Set to 'Allowed' to have clauses describing how policy changes are communicated highlighted for your review (typically as Medium concern)."
     },
     "childrens_privacy_strict": {
-        "label": "Children's Privacy Protection",
-        "description": "Apply stricter scrutiny or alerts for clauses related to children's data."
+        "label": "Strict Scrutiny for Children's Privacy",
+        "description": "Set to 'Allowed' to apply stricter scrutiny to clauses related to children's data, flagging them with High concern."
     }
 }
 
@@ -221,10 +221,16 @@ def dashboard_overview():
     # key_privacy_insights will come from user_profile_data.key_privacy_insights
     # If user_profile_data is None, the template should handle it.
 
+    global_recommendations = []
+    if user_profile_data: # Ensure user_profile_data is not None
+        global_recommendations = recommendation_engine.generate_global_recommendations(user_profile_data)
+    # else: global_recommendations remains [] which template handles
+
     return render_template(
         'privacy_dashboard.html',
         service_profiles=service_profiles,
         user_profile=user_profile_data, # Pass the whole profile object
+        global_recommendations=global_recommendations, # Pass global recommendations
         page_title="Your Privacy Dashboard" # Updated title
     )
 

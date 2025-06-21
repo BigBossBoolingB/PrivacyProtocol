@@ -137,34 +137,54 @@ class PrivacyInterpreter:
             summary = self.plain_language_translator.translate(sentence_text, ai_category)
 
             # Determine user_concern_level
-            user_concern_level = 'None' # Default
+            user_concern_level = 'None' # Default initial value
             has_findings = (ai_category != 'Other') or bool(current_keyword_matches)
 
-            if self.user_preferences: # Only apply if preferences are loaded
-                # AI Category Checks
-                if ai_category == 'Data Selling' and not self.user_preferences.get('data_selling_allowed', True):
-                    user_concern_level = 'High'
-                elif ai_category == 'Data Sharing' and not self.user_preferences.get('data_sharing_for_ads_allowed', True) and user_concern_level != 'High':
-                    # Simplified: considering any 'Data Sharing' if ads sharing is disallowed.
-                    # A more granular AI category (e.g., 'Data Sharing for Advertising') would be better.
-                    user_concern_level = 'High'
-                elif ai_category == 'Cookies and Tracking Technologies' and not self.user_preferences.get('cookies_for_tracking_allowed', True) and user_concern_level != 'High':
-                    user_concern_level = 'High'
-                elif ai_category == 'Childrens Privacy' and self.user_preferences.get('childrens_privacy_strict', False) and user_concern_level != 'High':
-                    user_concern_level = 'High'
-                elif ai_category == 'Policy Change' and self.user_preferences.get('policy_changes_notification_required', False) and user_concern_level != 'High':
-                    user_concern_level = 'Medium'
+            if self.user_preferences:
+                concern_levels_map = {'None': 0, 'Low': 1, 'Medium': 2, 'High': 3}
+                current_concern_numeric = concern_levels_map['None'] # Start with None
 
-                # Keyword Match Checks (can elevate concern)
-                # This is a basic example; can be more sophisticated
-                for kw_match in current_keyword_matches:
-                    if kw_match['category'] == 'Data Selling' and not self.user_preferences.get('data_selling_allowed', True):
-                        user_concern_level = 'High'
-                        break
-                    # Add more keyword-category to preference checks if needed
+                # Base concern if there are any findings (not 'Other' AI cat or has keywords)
+                if has_findings:
+                    current_concern_numeric = concern_levels_map['Low']
 
-            if user_concern_level == 'None' and has_findings:
-                user_concern_level = 'Low'
+
+                # Preference-based elevation
+                if self.user_preferences.get('data_selling_allowed') is False and \
+                   (ai_category == 'Data Selling' or any(kw.get('category') == 'Data Selling' for kw in current_keyword_matches)):
+                    current_concern_numeric = max(current_concern_numeric, concern_levels_map['High'])
+
+                if self.user_preferences.get('data_sharing_for_ads_allowed') is False and \
+                   ai_category == 'Data Sharing': # Assuming 'Data Sharing' implies for ads for now
+                    current_concern_numeric = max(current_concern_numeric, concern_levels_map['High'])
+
+                # New logic for data_sharing_for_analytics_allowed
+                if self.user_preferences.get('data_sharing_for_analytics_allowed') is False and \
+                   (ai_category == 'Data Sharing' or ai_category == 'Data Usage'): # 'Data Usage' is hypothetical
+                    current_concern_numeric = max(current_concern_numeric, concern_levels_map['Medium'])
+
+                if self.user_preferences.get('cookies_for_tracking_allowed') is False and \
+                   ai_category == 'Cookies and Tracking Technologies':
+                    current_concern_numeric = max(current_concern_numeric, concern_levels_map['High'])
+
+                if self.user_preferences.get('childrens_privacy_strict') is True and \
+                   ai_category == 'Childrens Privacy':
+                    current_concern_numeric = max(current_concern_numeric, concern_levels_map['High'])
+
+                if self.user_preferences.get('policy_changes_notification_required') is True and \
+                   ai_category == 'Policy Change':
+                    current_concern_numeric = max(current_concern_numeric, concern_levels_map['Medium'])
+
+                # Convert numeric back to string label
+                reversed_concern_map = {v: k for k, v in concern_levels_map.items()}
+                user_concern_level = reversed_concern_map.get(current_concern_numeric, 'None')
+
+            else: # No user_preferences loaded, fallback to basic logic
+                if has_findings:
+                    user_concern_level = 'Low'
+                else:
+                    user_concern_level = 'None'
+
 
             analyzed_sentences.append({
                 "clause_text": sentence_text,
