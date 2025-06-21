@@ -197,14 +197,16 @@
 
         <div class="insights-section">
             <h3>Key Privacy Insights</h3>
-            {% if user_profile and user_profile.key_privacy_insights %}
+            {% if user_profile and user_profile.key_privacy_insights and user_profile.key_privacy_insights|length > 0 %}
                 <ul>
                     {% for insight in user_profile.key_privacy_insights %}
                         <li>{{ insight }}</li>
                     {% endfor %}
                 </ul>
-            {% else %}
-                <p>No specific insights to display at this time. Analyze more policies to generate insights.</p>
+            {% elif user_profile %} {# User profile exists but no specific insights generated (e.g., only one service with medium score) #}
+                <p>No specific insights to highlight at this time. Review your services below or analyze more policies.</p>
+            {% else %} {# User profile itself couldn't be loaded, or no services analyzed to create one #}
+                <p>Analyze some policies to generate privacy insights and see your overall posture.</p>
             {% endif %}
         </div>
 

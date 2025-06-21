@@ -176,38 +176,75 @@ def calculate_and_save_user_privacy_profile(user_id: str = "default_user") -> Us
     total_low_risk_services = 0
 
     # Insights generation can be more sophisticated later
-    key_insights = set() # Use a set to avoid duplicate generic insights
+    key_insights_list = [] # Use a list to control order and count
 
-    for sp in service_profiles:
+    for sp in service_profiles: # Ensure this loop is outside the initial `if not service_profiles:` block
         sum_of_risk_scores += sp.latest_service_risk_score
         if sp.latest_service_risk_score > 66:
             total_high_risk_services += 1
-            if sp.service_name:
-                key_insights.add(f"{sp.service_name} has a High privacy risk score ({sp.latest_service_risk_score}/100). Review its details.")
-            else:
-                key_insights.add(f"An analyzed policy has a High privacy risk score ({sp.latest_service_risk_score}/100).")
+            # Use user_defined_name if available for the insight, otherwise the auto-generated service_name
+            display_name = sp.user_defined_name if sp.user_defined_name else sp.service_name
+            key_insights_list.append(f"{display_name} has a High privacy risk score ({sp.latest_service_risk_score}/100). Prioritize reviewing this service.")
         elif sp.latest_service_risk_score > 33:
             total_medium_risk_services += 1
         else:
             total_low_risk_services += 1
 
-        # Deferring more granular cross-service insights for now.
-        pass
-
     overall_score = round(sum_of_risk_scores / total_services_analyzed) if total_services_analyzed > 0 else None
 
-    if not key_insights:
-        if overall_score is not None and overall_score <= 33:
-            key_insights.add("Your overall privacy posture appears relatively strong based on analyzed services.")
-        elif overall_score is not None and overall_score > 66:
-            key_insights.add("Several services show high risk scores. It's recommended to review them.")
+    # Refined insight logic based on overall score and counts
+    if total_high_risk_services > 0:
+        # The specific high-risk service insights are already added.
+        # Could add a summary insight if there are many high-risk services.
+        if total_high_risk_services > 1 and len(key_insights_list) < 3:
+             key_insights_list.append(f"You have {total_high_risk_services} services with High risk scores. Focus on these first.")
+    elif total_medium_risk_services > 0 and len(key_insights_list) < 3 : # Only show if no high risk ones, to reduce noise
+        insight_text = f"You have {total_medium_risk_services} service(s) with a 'Medium' privacy risk score (34-66). It's advisable to review their details."
+        if total_medium_risk_services == 1:
+            display_name_medium = ""
+            for sp_med in service_profiles: # Find the medium risk service
+                if 33 < sp_med.latest_service_risk_score <= 66:
+                    display_name_medium = sp_med.user_defined_name if sp_med.user_defined_name else sp_med.service_name
+                    break
+            insight_text = f"{display_name_medium if display_name_medium else 'A service'} has a 'Medium' privacy risk score ({sp_med.latest_service_risk_score}/100). It's advisable to review its details."
+        key_insights_list.append(insight_text)
+
+    # Add insight about overall posture if no specific high/medium risks are flagged by the above or list is still short
+    if not key_insights_list or len(key_insights_list) < 2 :
+        if overall_score is not None:
+            if overall_score <= 33:
+                key_insights_list.append("Your overall privacy posture appears relatively strong based on the services analyzed so far. Keep monitoring!")
+            elif overall_score <= 66:
+                key_insights_list.append("Your overall privacy posture is moderate. Review medium risk services and be mindful of new policies.")
+            else: # overall_score > 66. Should have been caught by high_risk_services insight.
+                key_insights_list.append("Your overall privacy posture has some high risk elements. Detailed review is recommended.")
+        elif total_services_analyzed > 0:
+             key_insights_list.append("Review individual service risk scores to understand your privacy posture.")
+
+    if not key_insights_list and total_services_analyzed > 0:
+        if total_low_risk_services == total_services_analyzed:
+            key_insights_list.append("All currently analyzed services have Low privacy risk scores. Good job selecting services!")
         else:
-            key_insights.add("Review individual service risk scores to understand your privacy posture.")
+             key_insights_list.append("Continue analyzing services to build a clearer picture of your privacy posture.")
+
+    if not service_profiles: # This condition is handled at the start of the function now
+        pass # Insights for empty profile are set at the function start
+    elif not key_insights_list:
+         key_insights_list.append("Review your dashboard for detailed service risk scores.")
+
+    # Limit insights for display (e.g., max 3)
+    final_insights = key_insights_list[:3]
+
+    # Conceptual note for future AI integration (fulfills sub-issue 2.3 documentation part)
+    # TODO: Future - Integrate advanced AI (e.g., LLM with specific prompts on aggregated data)
+    # to synthesize more nuanced, natural language insights and actionable advice here.
+    # Example: "Based on your preference to avoid data selling, the high risk score of Service X
+    # (which mentions data selling) is a key concern. Consider finding an alternative or using opt-outs."
 
     user_profile = UserPrivacyProfile(
         user_id=user_id,
         overall_privacy_risk_score=overall_score,
-        key_privacy_insights=list(key_insights)[:3], # Limit to top 3 insights for now
+        key_privacy_insights=final_insights, # Use the generated insights
         total_services_analyzed=total_services_analyzed,
         total_high_risk_services_count=total_high_risk_services,
         total_medium_risk_services_count=total_medium_risk_services,

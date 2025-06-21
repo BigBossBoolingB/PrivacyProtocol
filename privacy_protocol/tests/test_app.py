@@ -347,6 +347,11 @@ class TestWebApp(unittest.TestCase):
     # --- /history and /history/view routes ---
     def test_history_list_page_empty(self):
         # setUp ensures service_profiles.json is cleared initially
+        # Also ensure user_privacy_profile.json is cleared for consistent dashboard checks if route involves it
+        user_profile_path = os.path.join(dashboard_data_manager.USER_DATA_DIR, dashboard_data_manager.USER_PRIVACY_PROFILE_FILENAME)
+        if os.path.exists(user_profile_path):
+            os.remove(user_profile_path)
+
         with app.test_request_context(): # For url_for
             response = self.client.get(url_for('history_list_route_function'))
         self.assertEqual(response.status_code, 200)
@@ -526,16 +531,19 @@ class TestWebApp(unittest.TestCase):
 
     # --- Dashboard Tests ---
     def test_dashboard_page_empty(self):
-        # Ensure no service_profiles.json exists or it's empty
-        if os.path.exists(self.service_profiles_path):
-            os.remove(self.service_profiles_path)
+        # setUp ensures service_profiles.json is cleared.
+        # This test also implicitly tests that load_user_privacy_profile creates a default profile.
+        user_profile_path = os.path.join(dashboard_data_manager.USER_DATA_DIR, dashboard_data_manager.USER_PRIVACY_PROFILE_FILENAME)
+        if os.path.exists(user_profile_path): # Clean from previous potential test runs if tearDown failed
+            os.remove(user_profile_path)
 
-        with app.test_request_context(): # Need app context for url_for
+        with app.test_request_context():
             response = self.client.get(url_for('dashboard_overview'))
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Your Privacy Dashboard", response.data)
         self.assertIn(b"No services analyzed yet.", response.data)
-        self.assertIn(b"Key Privacy Insights (Placeholders)", response.data)
+        # Check for the specific insight generated when no services are analyzed
+        self.assertIn(b"Analyze some policies to generate privacy insights and see your overall posture.", response.data)
 
     def test_dashboard_page_with_service_profiles(self):
         ts1_iso = datetime(2024, 1, 1, 10, 0, 0, tzinfo=timezone.utc).isoformat()
@@ -583,10 +591,52 @@ class TestWebApp(unittest.TestCase):
         text_data = response.data.decode('utf-8')
         self.assertTrue(text_data.find("Another Org") < text_data.find("Example Site"), "Profile 2 (another.org) should appear before Profile 1 (example.com) due to newer timestamp.")
 
-        self.assertIn(b"Key Privacy Insights (Placeholders)", response.data)
+        # Check for the specific insight generated based on these profiles
+        # Profile2 (75, High), Profile1 (30, Low) -> Overall (75+30)/2 = 52.5 -> 53 (Medium)
+        # Expected high-risk insight due to profile2
+        self.assertIn(b"Another Org has a High privacy risk score (75/100). Prioritize reviewing this service.", response.data)
+        # Depending on insight limits, other insights might be present or not.
+        # For example, an overall posture insight for Medium score:
+        # self.assertIn(b"Your overall privacy posture is moderate.", response.data) # This might or might not show depending on limit and other insights
+
         self.assertIn(bytes(url_for('index'), 'utf-8'), response.data)
-        self.assertIn(bytes(url_for('history_list_route_function'), 'utf-8'), response.data) # Corrected endpoint name
+        self.assertIn(bytes(url_for('history_list_route_function'), 'utf-8'), response.data)
         self.assertIn(bytes(url_for('preferences'), 'utf-8'), response.data)
+
+    def test_dashboard_displays_specific_insights_scenario_all_low(self):
+        ts = datetime.now(timezone.utc).isoformat()
+        profile_low1 = ServiceProfile(
+            service_id='lowrisk1.com', service_name='Low Risk One',
+            latest_analysis_timestamp=ts, latest_policy_identifier='pid_lr1',
+            latest_service_risk_score=15, num_total_clauses=10, high_concern_count=0, medium_concern_count=0, low_concern_count=1,
+            source_url='http://lowrisk1.com'
+        )
+        profile_low2 = ServiceProfile(
+            service_id='lowrisk2.com', service_name='Low Risk Two',
+            latest_analysis_timestamp=ts, latest_policy_identifier='pid_lr2',
+            latest_service_risk_score=25, num_total_clauses=12, high_concern_count=0, medium_concern_count=0, low_concern_count=2,
+            source_url='http://lowrisk2.com'
+        )
+        dashboard_data_manager.save_service_profiles([profile_low1, profile_low2])
+
+        with app.test_request_context():
+            response = self.client.get(url_for('dashboard_overview'))
+        self.assertEqual(response.status_code, 200)
+        # Overall score: (15+25)/2 = 20 (Low)
+        # Expected insight: "Your overall privacy posture appears relatively strong..." OR "All currently analyzed services have Low..."
+        # The "All low" is more specific and should ideally be chosen if logic allows.
+        # Current logic: if not key_insights_list and total_low_risk_services == total_services_analyzed:
+        self.assertTrue(
+            b"All currently analyzed services have Low privacy risk scores. Good job selecting services!" in response.data or
+            b"Your overall privacy posture appears relatively strong" in response.data # Fallback if the "All low" is not hit first
+        )
+        # Assert overall score display for this "all low" scenario
+        self.assertIn(b"Overall Privacy Posture", response.data)
+        self.assertIn(b"<p class=\"overall-score-value risk-score-low-text\">20/100</p>", response.data)
+        self.assertIn(b"<p class=\"risk-category-label risk-score-low-text\">Low Risk Profile</p>", response.data)
+        self.assertIn(b"Across 2 analyzed service(s).", response.data)
+        self.assertIn(b"Low Risk Services: 2", response.data)
+
 
     @patch.dict(os.environ, {ACTIVE_LLM_PROVIDER_ENV_VAR: PROVIDER_GEMINI}, clear=True)
     @patch(GEMINI_SERVICE_KEY_CHECK_PATH, return_value=(True, "fake_key")) # Assume key is available

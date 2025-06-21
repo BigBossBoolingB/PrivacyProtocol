@@ -325,6 +325,51 @@ class TestDashboardDataManager(unittest.TestCase):
             mock_recalc.assert_called_once() # Should be called due to corruption
             self.assertEqual(loaded_profile.overall_privacy_risk_score, 77)
 
+    def test_insight_generation_multiple_high_risk_services_and_limit(self):
+        ts = datetime.now(timezone.utc).isoformat()
+        services_data = [
+            ServiceProfile('s1.com', 'Service Alpha', ts, 'p1', 90, 10,1,0,0, user_defined_name="Alpha High Risk"),
+            ServiceProfile('s2.com', 'Service Beta', ts, 'p2', 85, 10,1,0,0),
+            ServiceProfile('s3.com', 'Service Gamma', ts, 'p3', 80, 10,1,0,0),
+            ServiceProfile('s4.com', 'Service Delta', ts, 'p4', 70, 10,1,0,0)
+        ] # 4 high risk services
+        dashboard_data_manager.save_service_profiles(services_data)
+
+        user_profile = dashboard_data_manager.calculate_and_save_user_privacy_profile()
+        self.assertIsNotNone(user_profile)
+        self.assertEqual(user_profile.total_high_risk_services_count, 4)
+        self.assertEqual(len(user_profile.key_privacy_insights), 3) # Limited to 3
+        # Check that it includes specific high-risk service mentions first
+        self.assertIn("Alpha High Risk has a High privacy risk score (90/100). Prioritize reviewing this service.", user_profile.key_privacy_insights)
+        self.assertIn("Service Beta has a High privacy risk score (85/100). Prioritize reviewing this service.", user_profile.key_privacy_insights)
+        # The third one could be either Gamma or the summary "You have 4 services with High risk scores..."
+        # Depending on the exact list construction order before slicing.
+        # Let's check if one of them is present.
+        is_gamma_present = "Service Gamma has a High privacy risk score (80/100). Prioritize reviewing this service." in user_profile.key_privacy_insights
+        is_summary_present = "You have 4 services with High risk scores. Focus on these first." in user_profile.key_privacy_insights
+        self.assertTrue(is_gamma_present or is_summary_present)
+
+
+    def test_insight_generation_only_medium_risk_services(self):
+        ts = datetime.now(timezone.utc).isoformat()
+        services_data = [
+            ServiceProfile('m1.com', 'Medium One', ts, 'pm1', 50, 10,0,1,0, user_defined_name="Medium Service Alpha"),
+            ServiceProfile('m2.com', 'Medium Two', ts, 'pm2', 60, 10,0,1,0)
+        ] # 2 medium risk services
+        dashboard_data_manager.save_service_profiles(services_data)
+
+        user_profile = dashboard_data_manager.calculate_and_save_user_privacy_profile()
+        self.assertIsNotNone(user_profile)
+        self.assertEqual(user_profile.total_medium_risk_services_count, 2)
+        self.assertEqual(user_profile.total_high_risk_services_count, 0)
+        expected_insight = "You have 2 service(s) with a 'Medium' privacy risk score (34-66). It's advisable to review their details."
+        self.assertIn(expected_insight, user_profile.key_privacy_insights)
+        # It might also contain an overall posture insight if the list is not full
+        overall_score = round((50+60)/2) # 55
+        if overall_score <= 66 and len(user_profile.key_privacy_insights) < 3:
+             self.assertTrue(any("Your overall privacy posture is moderate" in insight for insight in user_profile.key_privacy_insights) or \
+                             "Review individual service risk scores" in user_profile.key_privacy_insights[0] )
+
 
 if __name__ == '__main__':
     unittest.main()
