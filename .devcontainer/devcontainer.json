@@ -1,0 +1,87 @@
+// .devcontainer/devcontainer.json
+
+// This devcontainer.json orchestrates your secure and efficient development environment for Privacy Protocol.
+// It ensures every team member operates with the same tools and configurations,
+// aligning with The Architect's "Expanded KISS Principle" for robust development.
+{
+  // 1. Base Image: Know Your Core (K - Know Your Core, Keep it Clear)
+  // We start with a Python-specific image, which comes pre-configured with Python tools.
+  // This provides a clear, focused environment, avoiding unnecessary bloat.
+  "image": "mcr.microsoft.com/devcontainers/python:3.10", // Using a stable Python 3.10 image
+
+  // 2. Features: Essential Tooling (I - Iterate Intelligently, Integrate Intuitively)
+  // Install additional tools and runtimes needed for our polyglot development.
+  // This allows for incremental addition of capabilities as our codebase evolves.
+  "features": {
+    // Node.js for frontend development (npm/yarn, JavaScript/CSS tooling)
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts" // Use LTS version for stability
+    },
+    // Optional: PostgreSQL client for connecting to a local or remote PostgreSQL DB.
+    // If using SQLite for local dev, this can be omitted.
+    "ghcr.io/devcontainers/features/postgresql-client:1": {
+      "version": "latest"
+    },
+    // Docker-in-Docker if we need to run/test Docker containers inside the dev container
+    // Useful for testing services in isolated Docker environments.
+    "ghcr.io/devcontainers/features/docker-in-docker:1": {
+      "version": "latest"
+    }
+  },
+
+  // 3. Forwarded Ports: Seamless Local Access (S - Systematize for Scalability)
+  // Automatically forward the Flask app's default port, ensuring immediate local access.
+  "forwardPorts": [5000],
+
+  // 4. postCreateCommand: Automated Setup (S - Systematize for Scalability, Synchronize for Synergy)
+  // Commands executed after the container is created and ready. This automates dependency installation
+  // and development environment setup, ensuring every new developer gets a consistent starting point.
+  "postCreateCommand": "bash -c \"pip install --no-cache-dir -r requirements.txt && npm install --prefix ./privacy_protocol/ && pre-commit install\"",
+  // Explanation:
+  // - `pip install -r requirements.txt`: Installs Python backend dependencies. `--no-cache-dir` ensures fresh installs.
+  // - `npm install --prefix ./privacy_protocol/`: Installs frontend (JS/CSS) dependencies.
+  //   Assumes the Flask app and frontend `package.json` are within a `privacy_protocol/` subdirectory.
+  //   Adjust path as per actual project structure.
+  // - `pre-commit install`: Sets up Git pre-commit hooks for automated linting/formatting,
+  //   enforcing code quality locally before commits.
+
+  // 5. Customizations (VS Code specific): Tailored Developer Experience (S - Stimulate Engagement)
+  // Recommend essential VS Code extensions and settings for a highly productive and consistent experience.
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python", // Use the Python from the dev container
+        "editor.formatOnSave": true, // Automatically format code on save
+        "editor.defaultFormatter": "esbenp.prettier-vscode", // Use Prettier as default formatter
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter" // Use Black for Python files
+        }
+      },
+      "extensions": [
+        "ms-python.python",        // Core Python extension
+        "ms-python.vscode-pylance", // Pylance for intelligent Python autocompletion and type checking
+        "esbenp.prettier-vscode",  // Code formatter for HTML, CSS, JS, TS
+        "dbaeumer.vscode-eslint",  // Linter for JavaScript/TypeScript
+        "ms-azuretools.vscode-docker", // Docker integration for managing containers
+        "eamodio.gitlens",         // Enhance Git capabilities
+        "ms-python.black-formatter", // Black formatter for Python
+        "mhutchie.git-graph"       // Visualize Git history
+      ]
+    }
+  },
+
+  // 6. Workspace Configuration: Project Root (K - Know Your Core)
+  // Ensures the dev container opens at the correct project root.
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}", // Standard for devcontainers
+
+  // 7. Security & Privacy Considerations (S - Sense the Landscape, Secure the Solution)
+  // Explicitly state assumptions for security.
+  "containerEnv": {
+    // Conceptual: In a real environment, sensitive API keys (e.g., LLM keys)
+    // would be loaded via a secure secrets manager (like AWS Secrets Manager, HashiCorp Vault)
+    // and injected as environment variables *at runtime* or via specific mount points,
+    // NOT hardcoded here. This devcontainer prepares the *environment* for that secure injection.
+    // E.g., "AI_API_KEY_PLACEHOLDER": "use_secrets_manager_for_prod"
+  },
+  "remoteUser": "vscode" // Run as a non-root user for security best practices
+}
