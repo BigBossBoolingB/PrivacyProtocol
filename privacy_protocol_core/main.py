@@ -8,17 +8,29 @@ from .data_tracking.metadata_logger import MetadataLogger
 from .action_center.recommender import Recommender
 from .action_center.opt_out_navigator import OptOutNavigator
 
+# Import new data structures
+from .policy import PrivacyPolicy, DataCategory, Purpose, LegalBasis
+from .consent import UserConsent
+from .data_attribute import DataAttribute, SensitivityLevel, ObfuscationMethod
+
+
 class PrivacyProtocolApp:
     def __init__(self):
         self.interpreter = Interpreter()
         self.clause_identifier = ClauseIdentifier()
-        self.profiles = {} # In-memory store for user profiles, user_id -> UserProfile
+        self.profiles = {}  # In-memory store for user profiles, user_id -> UserProfile
         self.risk_scorer = RiskScorer()
         self.policy_tracker = PolicyTracker()
         self.metadata_logger = MetadataLogger()
         self.recommender = Recommender()
         self.opt_out_navigator = OptOutNavigator()
-        print("PrivacyProtocolApp initialized.")
+
+        # Placeholder storage for new data structures
+        self.policies = {}  # In-memory store for PrivacyPolicy objects, policy_id -> PrivacyPolicy
+        self.consents = {}  # In-memory store for UserConsent objects, consent_id -> UserConsent
+        self.data_attributes = {} # In-memory store for DataAttribute objects, attribute_id -> DataAttribute
+
+        print("PrivacyProtocolApp initialized with core components and data structure placeholders.")
 
     def get_or_create_user_profile(self, user_id):
         if user_id not in self.profiles:
@@ -83,6 +95,35 @@ def main():
         "Example Service", "John Doe", "john.doe@example.com"
     )
     print(f"\nData Deletion Email Template:\n{deletion_email}")
+
+    # Example of creating and storing a PrivacyPolicy (conceptual)
+    example_parsed_policy = PrivacyPolicy(
+        version="1.0",
+        data_categories=[DataCategory.PERSONAL_INFO, DataCategory.USAGE_DATA],
+        purposes=[Purpose.SERVICE_DELIVERY, Purpose.ANALYTICS],
+        retention_period="Until user deletes account",
+        third_parties_shared_with=["Analytics Inc."],
+        legal_basis=[LegalBasis.CONSENT, LegalBasis.CONTRACT],
+        text_summary="This is a sample machine-readable policy summary."
+    )
+    app.policies[example_parsed_policy.policy_id] = example_parsed_policy
+    print(f"\n--- Example Parsed Policy Stored ---")
+    print(f"Stored policy with ID: {example_parsed_policy.policy_id}")
+    print(f"Total policies in app store: {len(app.policies)}")
+
+    # Example of creating and storing UserConsent (conceptual)
+    example_consent = UserConsent(
+        user_id=user1_id,
+        policy_id=example_parsed_policy.policy_id,
+        policy_version=example_parsed_policy.version,
+        data_categories_consented=[DataCategory.PERSONAL_INFO],
+        purposes_consented=[Purpose.SERVICE_DELIVERY]
+    )
+    app.consents[example_consent.consent_id] = example_consent
+    print(f"\n--- Example User Consent Stored ---")
+    print(f"Stored consent with ID: {example_consent.consent_id} for user {user1_id}")
+    print(f"Total consents in app store: {len(app.consents)}")
+
 
 if __name__ == "__main__":
     main()
