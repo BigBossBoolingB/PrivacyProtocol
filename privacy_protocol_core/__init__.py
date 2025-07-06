@@ -16,8 +16,10 @@ from .data_tracking.policy_tracker import PolicyTracker
 from .data_tracking.metadata_logger import MetadataLogger
 from .action_center.recommender import Recommender
 from .action_center.opt_out_navigator import OptOutNavigator
-from .consent_manager import ConsentManager # Added
-from .policy_evaluator import PolicyEvaluator # Added
+from .consent_manager import ConsentManager
+from .policy_evaluator import PolicyEvaluator
+from .data_classifier import DataClassifier # Added
+from .obfuscation_engine import ObfuscationEngine # Added
 
 # Main Application Orchestrator
 from .main import PrivacyProtocolApp
@@ -43,8 +45,10 @@ __all__ = [
     "MetadataLogger",
     "Recommender",
     "OptOutNavigator",
-    "ConsentManager", # Added
-    "PolicyEvaluator", # Added
+    "ConsentManager",
+    "PolicyEvaluator",
+    "DataClassifier", # Added
+    "ObfuscationEngine", # Added
 
     # Main App
     "PrivacyProtocolApp",

@@ -17,6 +17,10 @@ from .data_attribute import DataAttribute, SensitivityLevel, ObfuscationMethod
 from .consent_manager import ConsentManager
 from .policy_evaluator import PolicyEvaluator
 
+# Import new DataClassifier and ObfuscationEngine
+from .data_classifier import DataClassifier
+from .obfuscation_engine import ObfuscationEngine
+
 
 class PrivacyProtocolApp:
     def __init__(self):
@@ -28,16 +32,20 @@ class PrivacyProtocolApp:
         self.metadata_logger = MetadataLogger()
         self.recommender = Recommender()
         self.opt_out_navigator = OptOutNavigator()
-
-        # Initialize new managers and evaluators
         self.consent_manager = ConsentManager()
         self.policy_evaluator = PolicyEvaluator()
 
+        # Initialize DataClassifier and ObfuscationEngine
+        self.data_classifier = DataClassifier() # Can be initialized with a registry if needed
+        self.obfuscation_engine = ObfuscationEngine()
+
         # Placeholder storage for policies and attributes (consents managed by ConsentManager)
         self.policies = {}  # In-memory store for PrivacyPolicy objects, policy_id -> PrivacyPolicy
-        self.data_attributes_registry = {} # In-memory store for DataAttribute objects, attribute_id -> DataAttribute
+        # data_attributes_registry can be part of DataClassifier or a separate registry managed by the app
+        # For now, DataClassifier manages its own rules, but app might hold a central registry of known attributes.
+        self.data_attributes_registry = self.data_classifier.attribute_registry
 
-        print("PrivacyProtocolApp initialized with ConsentManager and PolicyEvaluator.")
+        print("PrivacyProtocolApp initialized with all components including Classifier and Obfuscator.")
 
     def get_or_create_user_profile(self, user_id):
         if user_id not in self.profiles:
@@ -105,11 +113,16 @@ def main():
 
     # Example of creating and storing a PrivacyPolicy (conceptual)
     example_parsed_policy = PrivacyPolicy(
+        policy_id="main_example_policy_1", # Explicit ID for clarity
         version="1.0",
-        data_categories=[DataCategory.PERSONAL_INFO, DataCategory.USAGE_DATA],
-        purposes=[Purpose.SERVICE_DELIVERY, Purpose.ANALYTICS],
+        data_categories=[
+            DataCategory.PERSONAL_INFO,
+            DataCategory.USAGE_DATA,
+            DataCategory.TECHNICAL_INFO # Added for ip_address scenario
+        ],
+        purposes=[Purpose.SERVICE_DELIVERY, Purpose.ANALYTICS], # Marketing added later for a test
         retention_period="Until user deletes account",
-        third_parties_shared_with=["Analytics Inc."],
+        third_parties_shared_with=["Analytics Inc.", "SomeAnalyticsTool"], # Added SomeAnalyticsTool
         legal_basis=[LegalBasis.CONSENT, LegalBasis.CONTRACT],
         text_summary="This is a sample machine-readable policy summary."
     )
@@ -117,107 +130,111 @@ def main():
     print(f"\n--- Example PrivacyPolicy Created ---")
     print(f"Policy ID: {example_parsed_policy.policy_id}, Version: {example_parsed_policy.version}")
 
-    # Define some data attributes that might be used
-    email_attribute = DataAttribute(attribute_name="user_email", category=DataCategory.PERSONAL_INFO)
-    app.data_attributes_registry[email_attribute.attribute_id] = email_attribute
+    # Define some data attributes that might be used - these are now classified on the fly mostly
+    # but we can pre-register some for specific obfuscation methods if DataClassifier doesn't set them.
+    email_attr_def = DataAttribute(attribute_name="email_address", category=DataCategory.PERSONAL_INFO,
+                                   obfuscation_method_preferred=ObfuscationMethod.HASH)
+    app.data_attributes_registry[email_attr_def.attribute_name] = email_attr_def
 
-    usage_attribute = DataAttribute(attribute_name="page_views", category=DataCategory.USAGE_DATA)
-    app.data_attributes_registry[usage_attribute.attribute_id] = usage_attribute
+    ip_attr_def = DataAttribute(attribute_name="ip_address", category=DataCategory.TECHNICAL_INFO,
+                                obfuscation_method_preferred=ObfuscationMethod.REDACT)
+    app.data_attributes_registry[ip_attr_def.attribute_name] = ip_attr_def
 
 
     # User grants consent via ConsentManager
-    print(f"\n--- User '{user1_id}' Granting Consent ---")
-    user1_consent_to_policy = UserConsent(
+    print(f"\n--- User '{user1_id}' Granting Consent for Policy '{example_parsed_policy.policy_id}' ---")
+    user1_consent_data = UserConsent(
         user_id=user1_id,
         policy_id=example_parsed_policy.policy_id,
         policy_version=example_parsed_policy.version,
-        data_categories_consented=[DataCategory.PERSONAL_INFO, DataCategory.USAGE_DATA], # Consents to both
-        purposes_consented=[Purpose.SERVICE_DELIVERY, Purpose.ANALYTICS],      # Consents to Service Delivery & Analytics
-        third_parties_consented=["Analytics Inc."]                             # Consents to one third party
+        data_categories_consented=[DataCategory.PERSONAL_INFO], # Only consents to PERSONAL_INFO
+        purposes_consented=[Purpose.SERVICE_DELIVERY],      # Only for Service Delivery
+        third_parties_consented=[]                             # No third-party sharing consented
     )
-    app.consent_manager.add_consent(user1_consent_to_policy)
-    print(f"Consent ID {user1_consent_to_policy.consent_id} added for user '{user1_id}' for policy '{example_parsed_policy.policy_id}'.")
-    retrieved_consent = app.consent_manager.get_active_consent(user_id=user1_id, policy_id=example_parsed_policy.policy_id)
-    if retrieved_consent:
-        print(f"Retrieved active consent: version {retrieved_consent.policy_version}, purposes: {[p.value for p in retrieved_consent.purposes_consented]}")
+    app.consent_manager.add_consent(user1_consent_data)
+    active_consent_user1 = app.consent_manager.get_active_consent(user_id=user1_id, policy_id=example_parsed_policy.policy_id)
+    if active_consent_user1:
+        print(f"Active consent for {user1_id}: Purposes: {[p.value for p in active_consent_user1.purposes_consented]}, Categories: {[dc.value for dc in active_consent_user1.data_categories_consented]}")
 
 
-    # --- Policy Evaluation Examples ---
-    print("\n--- Policy Evaluation Examples ---")
+    # --- Data Classification and Obfuscation Examples ---
+    print("\n--- Data Classification and Obfuscation Examples ---")
 
-    # Scenario 1: Use email for Service Delivery (should be permitted)
-    attributes_for_op1 = [email_attribute]
-    purpose_op1 = Purpose.SERVICE_DELIVERY
-    is_permitted1 = app.policy_evaluator.is_operation_permitted(
+    sample_raw_data_user1 = {
+        "email": "johndoe@example.com",
+        "ip_address": "198.51.100.42",
+        "last_page_visited": "/home",
+        "user_id": "guid-xyz-123"  # Changed from user_id_internal to match classifier rule
+    }
+    print(f"Original User Data: {sample_raw_data_user1}")
+
+    # Scenario A: Process data for SERVICE_DELIVERY
+    # For user1, SERVICE_DELIVERY is consented for PERSONAL_INFO only.
+    # email (PERSONAL_INFO) -> raw
+    # ip_address (TECHNICAL_INFO) -> obfuscated
+    # last_page_visited (USAGE_DATA by rule) -> obfuscated
+    # user_id (PERSONAL_INFO by rule) -> raw
+
+    processed_data_service_delivery = app.obfuscation_engine.process_data_for_operation(
+        raw_data=sample_raw_data_user1,
         policy=example_parsed_policy,
-        consent=retrieved_consent,
-        data_attributes=attributes_for_op1,
-        proposed_purpose=purpose_op1
+        consent=active_consent_user1,
+        proposed_purpose=Purpose.SERVICE_DELIVERY,
+        data_classifier=app.data_classifier,
+        policy_evaluator=app.policy_evaluator
     )
-    print(f"Operation: Use '{email_attribute.attribute_name}' for '{purpose_op1.value}'. Permitted: {is_permitted1}")
-    assert is_permitted1 == True
+    print(f"Processed for SERVICE_DELIVERY (User1): {processed_data_service_delivery}")
+    assert processed_data_service_delivery["email"] == "johndoe@example.com"
+    assert processed_data_service_delivery["ip_address"] != "198.51.100.42" # Should be redacted
+    assert processed_data_service_delivery["last_page_visited"] != "/home"   # Should be obfuscated
+    assert processed_data_service_delivery["user_id"] == "guid-xyz-123" # PERSONAL_INFO consented for SD
 
-    # Scenario 2: Use email for Marketing (user did not consent to Marketing purpose)
-    purpose_op2 = Purpose.MARKETING # Policy allows Marketing, but user consent doesn't
-    is_permitted2 = app.policy_evaluator.is_operation_permitted(
-        policy=example_parsed_policy, # Policy allows marketing
-        consent=retrieved_consent,    # Consent does not have marketing
-        data_attributes=attributes_for_op1, # email
-        proposed_purpose=purpose_op2
-    )
-    print(f"Operation: Use '{email_attribute.attribute_name}' for '{purpose_op2.value}'. Permitted: {is_permitted2}")
-    assert is_permitted2 == False # example_parsed_policy doesn't list MARKETING, this should be false from policy check.
-                                  # Let's assume policy *did* list marketing for a better consent test.
-                                  # Correcting example_parsed_policy to include MARKETING for this test.
-    example_parsed_policy.purposes.append(Purpose.MARKETING) # Temporarily add for this test case.
-    is_permitted2_policy_allows = app.policy_evaluator.is_operation_permitted(
-        policy=example_parsed_policy,
-        consent=retrieved_consent, # User consent still doesn't have MARKETING
-        data_attributes=attributes_for_op1,
-        proposed_purpose=purpose_op2
-    )
-    print(f"Operation (policy updated): Use '{email_attribute.attribute_name}' for '{purpose_op2.value}'. Permitted: {is_permitted2_policy_allows}")
-    assert is_permitted2_policy_allows == False # Still false due to consent
 
-    # Scenario 3: Use usage_data for Analytics with "Analytics Inc." (should be permitted)
-    attributes_for_op3 = [usage_attribute]
-    purpose_op3 = Purpose.ANALYTICS
-    third_party_op3 = "Analytics Inc."
-    is_permitted3 = app.policy_evaluator.is_operation_permitted(
-        policy=example_parsed_policy,
-        consent=retrieved_consent,
-        data_attributes=attributes_for_op3,
-        proposed_purpose=purpose_op3,
-        proposed_third_party=third_party_op3
-    )
-    print(f"Operation: Use '{usage_attribute.attribute_name}' for '{purpose_op3.value}' with '{third_party_op3}'. Permitted: {is_permitted3}")
-    assert is_permitted3 == True
+    # Scenario B: Process data for ANALYTICS (user1 has NOT consented to ANALYTICS)
+    # All fields should be obfuscated as the purpose is not consented.
+    # Policy itself allows ANALYTICS for PERSONAL_INFO, USAGE_DATA.
+    example_parsed_policy.purposes.append(Purpose.ANALYTICS) # Ensure policy allows it
 
-    # Scenario 4: Use email for Analytics with "OtherCompany" (third party not consented)
-    third_party_op4 = "OtherCompany"
-    is_permitted4 = app.policy_evaluator.is_operation_permitted(
+    processed_data_analytics_user1 = app.obfuscation_engine.process_data_for_operation(
+        raw_data=sample_raw_data_user1,
         policy=example_parsed_policy,
-        consent=retrieved_consent,
-        data_attributes=attributes_for_op1, # email
-        proposed_purpose=purpose_op3,       # Analytics
-        proposed_third_party=third_party_op4
+        consent=active_consent_user1, # This consent doesn't allow ANALYTICS
+        proposed_purpose=Purpose.ANALYTICS,
+        data_classifier=app.data_classifier,
+        policy_evaluator=app.policy_evaluator
     )
-    print(f"Operation: Use '{email_attribute.attribute_name}' for '{purpose_op3.value}' with '{third_party_op4}'. Permitted: {is_permitted4}")
-    assert is_permitted4 == False
+    print(f"Processed for ANALYTICS (User1 - no consent for this purpose): {processed_data_analytics_user1}")
+    assert processed_data_analytics_user1["email"] != "johndoe@example.com"     # Obfuscated (hashed by pre-reg)
+    assert processed_data_analytics_user1["ip_address"] != "198.51.100.42" # Obfuscated (redacted by pre-reg)
+    assert processed_data_analytics_user1["last_page_visited"] != "/home"       # Obfuscated
+    assert processed_data_analytics_user1["user_id"] != "guid-xyz-123" # Obfuscated
 
-    # Scenario 5: User revokes consent, then try an operation
-    print(f"\n--- User '{user1_id}' Revoking Consent ---")
-    app.consent_manager.revoke_consent(user_id=user1_id, policy_id=example_parsed_policy.policy_id)
-    print(f"Consent for policy '{example_parsed_policy.policy_id}' for user '{user1_id}' revoked.")
-    revoked_consent_check = app.consent_manager.get_active_consent(user_id=user1_id, policy_id=example_parsed_policy.policy_id)
-    is_permitted5 = app.policy_evaluator.is_operation_permitted(
-        policy=example_parsed_policy,
-        consent=revoked_consent_check, # Should be None or inactive
-        data_attributes=attributes_for_op1,
-        proposed_purpose=purpose_op1
+
+    # Scenario C: User2 - different consent (consents to ANALYTICS for USAGE_DATA and TECHNICAL_INFO)
+    user2_id = "user456"
+    user2_consent_data = UserConsent(
+        user_id=user2_id, policy_id=example_parsed_policy.policy_id, policy_version=example_parsed_policy.version,
+        data_categories_consented=[DataCategory.USAGE_DATA, DataCategory.TECHNICAL_INFO],
+        purposes_consented=[Purpose.ANALYTICS],
+        third_parties_consented=["SomeAnalyticsTool"]
     )
-    print(f"Operation after revocation: Use '{email_attribute.attribute_name}' for '{purpose_op1.value}'. Permitted: {is_permitted5}")
-    assert is_permitted5 == False
+    app.consent_manager.add_consent(user2_consent_data)
+    active_consent_user2 = app.consent_manager.get_active_consent(user_id=user2_id, policy_id=example_parsed_policy.policy_id)
+
+    processed_data_analytics_user2 = app.obfuscation_engine.process_data_for_operation(
+        raw_data=sample_raw_data_user1, # Same raw data
+        policy=example_parsed_policy,
+        consent=active_consent_user2,   # User2's consent
+        proposed_purpose=Purpose.ANALYTICS,
+        data_classifier=app.data_classifier,
+        policy_evaluator=app.policy_evaluator,
+        proposed_third_party="SomeAnalyticsTool"
+    )
+    print(f"Processed for ANALYTICS (User2 - specific consent): {processed_data_analytics_user2}")
+    assert processed_data_analytics_user2["email"] != "johndoe@example.com" # PERSONAL_INFO not consented by User2 for ANALYTICS
+    assert processed_data_analytics_user2["ip_address"] == "198.51.100.42"   # TECHNICAL_INFO consented for ANALYTICS
+    assert processed_data_analytics_user2["last_page_visited"] == "/home"    # USAGE_DATA consented for ANALYTICS
+    assert processed_data_analytics_user2["user_id"] != "guid-xyz-123" # PERSONAL_INFO not consented
 
 
 if __name__ == "__main__":

@@ -34,24 +34,33 @@ class PolicyEvaluator:
         Returns:
             True if the operation is permitted, False otherwise.
         """
+        # Debug prints
+        # attr_names = [a.attribute_name for a in data_attributes]
+        # attr_cats = [a.category.value if a.category else 'None' for a in data_attributes]
+        # print(f"\n[PolicyEvaluator] Evaluating: Attrs: {attr_names}, Cats: {attr_cats}, Purpose: {proposed_purpose.value}, TP: {proposed_third_party}")
+        # print(f"  Policy ID: {policy.policy_id}, Policy Purposes: {[p.value for p in policy.purposes]}, Policy Cats: {[dc.value for dc in policy.data_categories]}")
+        # if consent:
+        #     print(f"  Consent ID: {consent.consent_id}, Active: {consent.is_active}, Consented Purposes: {[p.value for p in consent.purposes_consented]}, Consented Cats: {[dc.value for dc in consent.data_categories_consented]}, Consented TPs: {consent.third_parties_consented}")
+        # else:
+        #     print("  No consent object provided.")
 
         if not isinstance(policy, PrivacyPolicy):
-            # print("Debug: Invalid policy object.")
+            # print("[PolicyEvaluator] Exit: Invalid policy object.")
             return False
         if consent is not None and not isinstance(consent, UserConsent):
-            # print("Debug: Invalid consent object (if provided).")
+            # print("[PolicyEvaluator] Exit: Invalid consent object (if provided).")
             return False
         if not isinstance(data_attributes, list) or not all(isinstance(da, DataAttribute) for da in data_attributes):
-            # print("Debug: data_attributes must be a list of DataAttribute objects.")
+            # print("[PolicyEvaluator] Exit: data_attributes must be a list of DataAttribute objects.")
             return False
         if not isinstance(proposed_purpose, Purpose):
-            # print("Debug: proposed_purpose must be a Purpose enum.")
+            # print("[PolicyEvaluator] Exit: proposed_purpose must be a Purpose enum.")
             return False
 
         # 1. Policy Checks: Does the policy generally allow this?
         # 1a. Does the policy list this purpose?
         if proposed_purpose not in policy.purposes:
-            # print(f"Debug: Proposed purpose '{proposed_purpose.value}' not in policy purposes: {[p.value for p in policy.purposes]}.")
+            # print(f"[PolicyEvaluator] Exit: Proposed purpose '{proposed_purpose.value}' not in policy purposes.")
             return False
 
         # 1b. Do all data attribute categories exist in the policy's declared data categories?
@@ -59,7 +68,7 @@ class PolicyEvaluator:
         policy_data_categories_values = {dc.value for dc in policy.data_categories}
         for attr in data_attributes:
             if attr.category and attr.category.value not in policy_data_categories_values:
-                # print(f"Debug: Attribute category '{attr.category.value}' (from attribute '{attr.attribute_name}') not declared in policy data categories.")
+                # print(f"[PolicyEvaluator] Exit: Attribute category '{attr.category.value}' (from attribute '{attr.attribute_name}') not declared in policy data categories.")
                 return False
 
         # 2. Consent Checks: If consent is the basis (or one of them), is it granted?
@@ -89,12 +98,12 @@ class PolicyEvaluator:
         consented_data_categories_values = {dc.value for dc in consent.data_categories_consented}
         for attr in data_attributes:
             if attr.category and attr.category.value not in consented_data_categories_values:
-                # print(f"Debug: Data category '{attr.category.value}' (from attribute '{attr.attribute_name}') not in consented categories.")
+            # print(f"[PolicyEvaluator] Exit: Data category '{attr.category.value}' (from attribute '{attr.attribute_name}') not in consented categories: {consented_data_categories_values}.")
                 return False
 
         # 2b. Is the proposed purpose consented to?
         if proposed_purpose not in consent.purposes_consented:
-            # print(f"Debug: Proposed purpose '{proposed_purpose.value}' not in consented purposes.")
+        # print(f"[PolicyEvaluator] Exit: Proposed purpose '{proposed_purpose.value}' not in consented purposes: {[p.value for p in consent.purposes_consented]}.")
             return False
 
         # 2c. If sharing with a third party, is that third party consented to for this purpose?
@@ -105,12 +114,13 @@ class PolicyEvaluator:
             # This implies that if any third_party is involved, it must be in the flat list.
             # A more advanced model might have specific consent per purpose per third party.
             if proposed_third_party not in consent.third_parties_consented:
-                # print(f"Debug: Proposed third party '{proposed_third_party}' not in consented third parties.")
+                # print(f"[PolicyEvaluator] Exit: Proposed third party '{proposed_third_party}' not in consented third parties: {consent.third_parties_consented}.")
                 # Allow a wildcard "*" in consented_third_parties to mean consent to share with any third party for consented purposes/categories.
                 if "*" not in consent.third_parties_consented:
                     return False
 
         # All checks passed
+        # print(f"[PolicyEvaluator] Permitted: Attrs: {[a.attribute_name for a in data_attributes]}, Purpose: {proposed_purpose.value}, TP: {proposed_third_party}")
         return True
 
 
