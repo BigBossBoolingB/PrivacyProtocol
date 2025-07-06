@@ -112,6 +112,11 @@ dmypy.json
 *.log
 logs/
 
+# Application Data / Temp Storage (adjust if your path differs)
+_data/
+_app_data/
+_app_storage_main_demo/
+
 # Temporary files
 *.tmp
 *~

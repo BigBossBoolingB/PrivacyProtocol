@@ -1,154 +1,112 @@
 from collections import defaultdict
-from datetime import datetime, timezone # Added timezone
-import uuid # Added uuid
+from datetime import datetime, timezone
+import uuid
 
 try:
-    # Assuming UserConsent is in .consent and PrivacyPolicy in .policy
     from .consent import UserConsent
     from .policy import PrivacyPolicy # Might be needed for type hinting or context
+    from .consent_store import ConsentStore
 except ImportError: # For standalone testing if needed
     from consent import UserConsent
     from policy import PrivacyPolicy
+    from consent_store import ConsentStore
 
 
 class ConsentManager:
-    def __init__(self):
+    def __init__(self, consent_store: ConsentStore):
         """
         Initializes the ConsentManager.
-        Manages user consent records, typically an in-memory store for this implementation.
-        Structure of self.consents:
-        {
-            user_id_1: {
-                policy_id_1: [UserConsent_v1, UserConsent_v2, ...], # List ordered by timestamp
-                policy_id_2: [...],
-            },
-            user_id_2: {...}
-        }
+        Manages user consent records, using a ConsentStore for persistence.
         """
-        self._consents_by_user_policy = defaultdict(lambda: defaultdict(list))
-        self._consents_by_id = {} # Direct access by consent_id: consent_id -> UserConsent
+        if not isinstance(consent_store, ConsentStore):
+            raise TypeError("consent_store must be an instance of ConsentStore.")
+        self.store = consent_store
 
-    def add_consent(self, consent: UserConsent):
+    def add_consent(self, consent: UserConsent) -> UserConsent:
         """
-        Adds a new consent record or updates an existing one if consent_id matches.
-        If a new consent for a user/policy makes a previous one outdated,
-        it's recommended to manage active status explicitly or rely on latest timestamp.
-        For simplicity, this version adds to a list, sorted by timestamp later.
+        Adds a new consent record. If this new consent is active,
+        it ensures other active consents for the same user/policy are
+        appropriately handled (e.g., marked inactive if older or overlapping).
         """
         if not isinstance(consent, UserConsent):
             raise ValueError("Invalid consent object provided.")
-        if not consent.user_id or not consent.policy_id:
-            raise ValueError("User ID and Policy ID must be set in the consent object.")
+        if not consent.user_id or not consent.policy_id or not consent.consent_id:
+            raise ValueError("User ID, Policy ID, and Consent ID must be set in the consent object.")
 
-        # Deactivate older consents for the same user/policy if this new one is active
         if consent.is_active:
-            active_consents = self._consents_by_user_policy[consent.user_id][consent.policy_id]
-            for existing_consent in active_consents:
-                if existing_consent.is_active and existing_consent.consent_id != consent.consent_id:
-                    # Heuristic: if timestamps are very close and IDs differ, it might be an update
-                    # For now, simple deactivation of other active consents for same user/policy.
-                    if consent.timestamp >= existing_consent.timestamp :
-                         existing_consent.is_active = False
+            existing_consents = self.store.load_consents_for_user_policy(consent.user_id, consent.policy_id)
+            for ec in existing_consents:
+                if ec.is_active and ec.consent_id != consent.consent_id:
+                    if consent.timestamp >= ec.timestamp:
+                        ec.is_active = False
+                        self.store.save_consent(ec)
 
+        if self.store.save_consent(consent):
+            return consent
+        else:
+            raise Exception(f"Failed to save consent {consent.consent_id} to store.")
 
-        user_policy_consents = self._consents_by_user_policy[consent.user_id][consent.policy_id]
-
-        # Check if this specific consent_id already exists to update it
-        updated = False
-        for i, existing_c in enumerate(user_policy_consents):
-            if existing_c.consent_id == consent.consent_id:
-                user_policy_consents[i] = consent
-                updated = True
-                break
-        if not updated:
-            user_policy_consents.append(consent)
-
-        # Sort by timestamp, most recent first, to make get_active_consent simpler
-        user_policy_consents.sort(key=lambda c: c.timestamp, reverse=True)
-
-        self._consents_by_id[consent.consent_id] = consent
-        return consent
 
     def get_active_consent(self, user_id: str, policy_id: str) -> UserConsent | None:
         """
-        Retrieves the most recent, active consent for a given user and policy.
+        Retrieves the most recent, active, and non-expired consent for a given user and policy
+        directly from the ConsentStore.
         """
-        if user_id in self._consents_by_user_policy and policy_id in self._consents_by_user_policy[user_id]:
-            user_policy_consents = self._consents_by_user_policy[user_id][policy_id]
-            for consent_record in user_policy_consents: # Already sorted, newest first
-                if consent_record.is_active:
-                    # Check for expiration
-                    if consent_record.expires_at:
-                        try:
-                            # Ensure the stored expires_at is parsed correctly, handling potential 'Z' for UTC
-                            if consent_record.expires_at.endswith('Z'):
-                                expiration_date = datetime.fromisoformat(consent_record.expires_at[:-1] + '+00:00')
-                            else:
-                                expiration_date = datetime.fromisoformat(consent_record.expires_at)
-
-                            # Ensure current time is also timezone-aware (UTC) for comparison
-                            current_time_utc = datetime.now(timezone.utc) # Corrected: use imported timezone
-
-                            # If expiration_date is naive, make it aware (assume UTC if Z was present or no tz info)
-                            if expiration_date.tzinfo is None:
-                                expiration_date = expiration_date.replace(tzinfo=timezone.utc)
-
-                            if expiration_date < current_time_utc:
-                                consent_record.is_active = False # Mark as inactive
-                                continue # Skip this expired consent
-                        except ValueError: # Invalid date format in expires_at
-                            pass # Treat as non-expiring or handle error
-                    return consent_record
-        return None
+        return self.store.load_latest_active_consent(user_id, policy_id)
 
     def revoke_consent(self, user_id: str, policy_id: str, consent_id: str = None) -> bool:
         """
         Revokes consent.
         If consent_id is provided, revokes that specific record.
         Otherwise, revokes the current active consent for the user_id/policy_id pair.
-        Returns True if a consent was successfully revoked, False otherwise.
+        Saves the change to the ConsentStore.
+        Returns True if a consent was successfully revoked and saved, False otherwise.
         """
-        revoked = False
+        consent_to_revoke = None
         if consent_id:
-            if consent_id in self._consents_by_id:
-                consent_to_revoke = self._consents_by_id[consent_id]
-                if consent_to_revoke.user_id == user_id and consent_to_revoke.policy_id == policy_id:
-                    consent_to_revoke.is_active = False
-                    # Update timestamp or add revocation specific timestamp if needed
-                    # consent_to_revoke.timestamp = datetime.utcnow().isoformat()
-                    revoked = True
-        else: # Revoke the latest active one for user/policy
-            active_consent = self.get_active_consent(user_id, policy_id)
-            if active_consent:
-                active_consent.is_active = False
-                # active_consent.timestamp = datetime.utcnow().isoformat()
-                revoked = True
-        return revoked
+            history = self.store.load_consents_for_user_policy(user_id, policy_id)
+            for c in history:
+                if c.consent_id == consent_id:
+                    consent_to_revoke = c
+                    break
+            if consent_to_revoke and (consent_to_revoke.user_id != user_id or consent_to_revoke.policy_id != policy_id):
+                return False # Mismatch
+        else:
+            consent_to_revoke = self.get_active_consent(user_id, policy_id)
+
+        if consent_to_revoke and consent_to_revoke.is_active:
+            consent_to_revoke.is_active = False
+            return self.store.save_consent(consent_to_revoke)
+        elif consent_to_revoke and not consent_to_revoke.is_active:
+            return True
+
+        return False
 
     def get_consent_history(self, user_id: str, policy_id: str) -> list[UserConsent]:
         """
-        Retrieves all consent versions (active and inactive) for a user and policy,
-        ordered by timestamp (most recent first).
+        Retrieves all consent versions (active and inactive) for a user and policy
+        from the ConsentStore, ordered by timestamp (most recent first).
         """
-        if user_id in self._consents_by_user_policy and policy_id in self._consents_by_user_policy[user_id]:
-            # The list is already sorted by add_consent
-            return list(self._consents_by_user_policy[user_id][policy_id])
-        return []
+        return self.store.load_consents_for_user_policy(user_id, policy_id)
 
-    def get_consent_by_id(self, consent_id: str) -> UserConsent | None:
-        """Retrieves a specific consent record by its ID."""
-        return self._consents_by_id.get(consent_id)
+    def get_consent_by_id(self, user_id: str, policy_id: str, consent_id: str) -> UserConsent | None:
+        """
+        Retrieves a specific consent record by its ID for a given user/policy.
+        Loads history and filters.
+        """
+        history = self.store.load_consents_for_user_policy(user_id, policy_id)
+        for consent_record in history:
+            if consent_record.consent_id == consent_id:
+                return consent_record
+        return None
 
-    # --- Placeholder Verifiable Consent Methods ---
     def sign_consent(self, consent: UserConsent) -> UserConsent:
         """
         Placeholder for cryptographically signing a consent object.
-        In a real implementation, this would involve private keys, possibly
-        linking to a user's digital identity (e.g., DigiSocialBlock wallet).
         """
-        # Conceptual: Generate a hash of key consent details, sign with user's private key.
-        # Store the signature in consent.signature.
         consent.signature = f"signed_placeholder_{uuid.uuid4()}"
+        # In a real scenario, would also save this updated consent (with signature) to the store.
+        # self.store.save_consent(consent)
         print(f"Placeholder: Consent {consent.consent_id} signed with '{consent.signature}'.")
         return consent
 
@@ -162,110 +120,101 @@ class ConsentManager:
         print(f"Placeholder: Signature for consent {consent.consent_id} is invalid or missing.")
         return False
 
-
 if __name__ == '__main__':
-    from policy import DataCategory, Purpose # For example usage
+    from policy import DataCategory, Purpose
+    # ConsentStore is already imported correctly at the top for standalone execution
+    import tempfile
+    import shutil
+    from datetime import timedelta
 
-    manager = ConsentManager()
+    temp_dir_manager_tests = tempfile.mkdtemp()
+    print(f"Using temporary directory for ConsentManager tests: {temp_dir_manager_tests}")
+    test_consent_store = ConsentStore(base_path=temp_dir_manager_tests)
+    manager = ConsentManager(consent_store=test_consent_store)
 
-    # Create some consents
-    consent1_user1_policyA_v1 = UserConsent(
-        user_id="user1", policy_id="PolicyA", policy_version="1.0",
+    user1_id = "userTest1"
+    policyA_id = "PolicyTestA"
+    ts_now = datetime.now(timezone.utc)
+
+    consent1_v1 = UserConsent(
+        user_id=user1_id, policy_id=policyA_id, policy_version="1.0",
         data_categories_consented=[DataCategory.PERSONAL_INFO],
         purposes_consented=[Purpose.SERVICE_DELIVERY],
-        timestamp=(datetime.utcnow() - timedelta(days=2)).isoformat()
+        timestamp=(ts_now - timedelta(days=2)).isoformat()
     )
-    manager.add_consent(consent1_user1_policyA_v1)
-    manager.sign_consent(consent1_user1_policyA_v1)
+    manager.add_consent(consent1_v1)
+    manager.sign_consent(consent1_v1)
 
-
-    consent2_user1_policyA_v2 = UserConsent(
-        user_id="user1", policy_id="PolicyA", policy_version="1.1",
+    consent2_v1_1_active_expiring = UserConsent(
+        user_id=user1_id, policy_id=policyA_id, policy_version="1.1",
         data_categories_consented=[DataCategory.PERSONAL_INFO, DataCategory.USAGE_DATA],
         purposes_consented=[Purpose.SERVICE_DELIVERY, Purpose.ANALYTICS],
-        timestamp=(datetime.utcnow() - timedelta(days=1)).isoformat(),
-        expires_at = (datetime.utcnow() + timedelta(minutes=1)).isoformat() # Expires soon
+        timestamp=(ts_now - timedelta(days=1)).isoformat(),
+        expires_at=(ts_now + timedelta(minutes=1)).isoformat()
     )
-    manager.add_consent(consent2_user1_policyA_v2)
-
-    consent3_user1_policyB_v1 = UserConsent(
-        user_id="user1", policy_id="PolicyB", policy_version="1.0",
-        data_categories_consented=[DataCategory.LOCATION_DATA],
-        purposes_consented=[Purpose.MARKETING]
-    )
-    manager.add_consent(consent3_user1_policyB_v1)
-
-    consent4_user2_policyA_v1 = UserConsent(
-        user_id="user2", policy_id="PolicyA", policy_version="1.1",
-        data_categories_consented=[DataCategory.TECHNICAL_INFO],
-        purposes_consented=[Purpose.SECURITY]
-    )
-    manager.add_consent(consent4_user2_policyA_v1)
+    manager.add_consent(consent2_v1_1_active_expiring)
 
     print("--- Initial State ---")
-    active_c_u1_pA = manager.get_active_consent("user1", "PolicyA")
-    print(f"User1, PolicyA active consent: {active_c_u1_pA.policy_version if active_c_u1_pA else 'None'}")
-    assert active_c_u1_pA and active_c_u1_pA.policy_version == "1.1"
-    print(f"Is signature valid for consent1? {manager.verify_consent_signature(consent1_user1_policyA_v1)}")
+    active_c = manager.get_active_consent(user1_id, policyA_id)
+    print(f"{user1_id}, {policyA_id} active consent: Version {active_c.policy_version if active_c else 'None'}")
+    assert active_c and active_c.consent_id == consent2_v1_1_active_expiring.consent_id
 
+    history_after_add = manager.get_consent_history(user1_id, policyA_id)
+    consent1_v1_from_store = next((c for c in history_after_add if c.consent_id == consent1_v1.consent_id), None)
+    assert consent1_v1_from_store and not consent1_v1_from_store.is_active, "Older consent should be inactive in store."
 
-    print("\n--- Testing Expiration ---")
-    print(f"User1, PolicyA active consent (v1.1) expires at: {active_c_u1_pA.expires_at if active_c_u1_pA else 'N/A'}")
-    import time
-    from datetime import timedelta # ensure timedelta is available
-    print("Waiting for 65 seconds for consent to expire...")
-    # time.sleep(65) # Commented out for faster testing, manually verify logic for expiration
+    print(f"\n--- Testing Expiration of {consent2_v1_1_active_expiring.consent_id} ---")
+    consent2_v1_1_active_expiring.expires_at = (ts_now - timedelta(seconds=10)).isoformat()
+    consent2_v1_1_active_expiring.is_active = True
+    manager.store.save_consent(consent2_v1_1_active_expiring)
 
-    # Manually expire for test:
-    if active_c_u1_pA: # v1.1
-         active_c_u1_pA.expires_at = (datetime.utcnow() - timedelta(seconds=1)).isoformat()
+    active_c_after_expiry = manager.get_active_consent(user1_id, policyA_id)
+    print(f"{user1_id}, {policyA_id} active consent after v1.1 expired: {active_c_after_expiry.policy_version if active_c_after_expiry else 'None'}")
+    assert active_c_after_expiry is None
 
-    active_c_u1_pA_after_wait = manager.get_active_consent("user1", "PolicyA")
-    print(f"User1, PolicyA active consent after waiting: {active_c_u1_pA_after_wait.policy_version if active_c_u1_pA_after_wait else 'None'}")
-    # Should fall back to v1.0 (consent1_user1_policyA_v1) if v1.1 (consent2_user1_policyA_v2) expired
-    assert active_c_u1_pA_after_wait and active_c_u1_pA_after_wait.policy_version == "1.0"
-
+    consent1_v1.is_active = True
+    consent1_v1.timestamp = (ts_now - timedelta(minutes=5)).isoformat()
+    manager.add_consent(consent1_v1)
 
     print("\n--- Revoking Consent ---")
-    print(f"Revoking specific consent: {consent1_user1_policyA_v1.consent_id} (PolicyA v1.0 for user1)")
-    manager.revoke_consent(user_id="user1", policy_id="PolicyA", consent_id=consent1_user1_policyA_v1.consent_id)
-    active_c_u1_pA_after_revoke = manager.get_active_consent("user1", "PolicyA")
-    print(f"User1, PolicyA active consent after specific revoke: {active_c_u1_pA_after_revoke.policy_version if active_c_u1_pA_after_revoke else 'None'}")
-    # Now no active consent should be found for user1/PolicyA as v1.1 expired and v1.0 revoked
-    assert active_c_u1_pA_after_revoke is None
+    active_before_revoke = manager.get_active_consent(user1_id, policyA_id)
+    assert active_before_revoke and active_before_revoke.consent_id == consent1_v1.consent_id
+    print(f"Active consent before revoke: {active_before_revoke.consent_id}")
 
-    # Add a new active consent for user1/PolicyA
-    consent5_user1_policyA_v3 = UserConsent(
-        user_id="user1", policy_id="PolicyA", policy_version="1.2",
-        data_categories_consented=[DataCategory.PERSONAL_INFO],
-        purposes_consented=[Purpose.SERVICE_DELIVERY]
+    manager.revoke_consent(user_id=user1_id, policy_id=policyA_id, consent_id=consent1_v1.consent_id)
+    active_after_revoke = manager.get_active_consent(user1_id, policyA_id)
+    print(f"{user1_id}, {policyA_id} active consent after specific revoke: {active_after_revoke.policy_version if active_after_revoke else 'None'}")
+    assert active_after_revoke is None
+
+    consent3_v1_2_active = UserConsent(
+        user_id=user1_id, policy_id=policyA_id, policy_version="1.2",
+        timestamp=ts_now.isoformat()
     )
-    manager.add_consent(consent5_user1_policyA_v3)
-    active_c_u1_pA = manager.get_active_consent("user1", "PolicyA")
-    print(f"User1, PolicyA active consent now: {active_c_u1_pA.policy_version if active_c_u1_pA else 'None'}")
-    assert active_c_u1_pA and active_c_u1_pA.policy_version == "1.2"
-
-    print(f"Revoking latest active consent for user1, PolicyA (which is v1.2)")
-    manager.revoke_consent(user_id="user1", policy_id="PolicyA") # Revokes the latest active (v1.2)
-    active_c_u1_pA_after_latest_revoke = manager.get_active_consent("user1", "PolicyA")
-    print(f"User1, PolicyA active consent after revoking latest: {active_c_u1_pA_after_latest_revoke.policy_version if active_c_u1_pA_after_latest_revoke else 'None'}")
-    assert active_c_u1_pA_after_latest_revoke is None
-
+    manager.add_consent(consent3_v1_2_active)
+    print(f"Revoking latest active consent for {user1_id}, {policyA_id} (which is {consent3_v1_2_active.consent_id})")
+    manager.revoke_consent(user_id=user1_id, policy_id=policyA_id)
+    active_after_latest_revoke = manager.get_active_consent(user1_id, policyA_id)
+    assert active_after_latest_revoke is None
 
     print("\n--- Consent History ---")
-    history_u1_pA = manager.get_consent_history("user1", "PolicyA")
-    print(f"User1, PolicyA consent history (count: {len(history_u1_pA)}):")
-    for c in history_u1_pA:
-        print(f"  ID: {c.consent_id}, Version: {c.policy_version}, Active: {c.is_active}, Timestamp: {c.timestamp}, Expires: {c.expires_at}")
-    # Expected: v1.2 (inactive), v1.1 (inactive, expired), v1.0 (inactive, revoked) - order by timestamp desc
-    assert len(history_u1_pA) == 3
-    assert history_u1_pA[0].policy_version == "1.2" and not history_u1_pA[0].is_active # consent5
-    assert history_u1_pA[1].policy_version == "1.1" and not history_u1_pA[1].is_active # consent2
-    assert history_u1_pA[2].policy_version == "1.0" and not history_u1_pA[2].is_active # consent1
+    history = manager.get_consent_history(user1_id, policyA_id)
+    print(f"{user1_id}, {policyA_id} consent history (count: {len(history)}):")
+    for c_hist in history:
+        print(f"  ID: {c_hist.consent_id}, Ver: {c_hist.policy_version}, Active: {c_hist.is_active}, TS: {c_hist.timestamp}")
+    assert len(history) == 3
+    assert not history[0].is_active
+    assert not history[1].is_active
+    assert not history[2].is_active
 
-    print("\n--- Get by ID ---")
-    retrieved_by_id = manager.get_consent_by_id(consent3_user1_policyB_v1.consent_id)
-    print(f"Retrieved consent by ID ({consent3_user1_policyB_v1.consent_id}): {retrieved_by_id.policy_id if retrieved_by_id else 'Not Found'}")
-    assert retrieved_by_id and retrieved_by_id.policy_id == "PolicyB"
+    print("\n--- Get by ID (specific user/policy context) ---")
+    retrieved_by_id = manager.get_consent_by_id(user_id=user1_id, policy_id=policyA_id, consent_id=consent1_v1.consent_id)
+    print(f"Retrieved consent by ID ({consent1_v1.consent_id}): Policy {retrieved_by_id.policy_id if retrieved_by_id else 'Not Found'}")
+    assert retrieved_by_id and retrieved_by_id.policy_id == policyA_id
 
-    print("\nAll examples executed.")
+    try:
+        shutil.rmtree(temp_dir_manager_tests)
+        print(f"\nCleaned up temporary directory: {temp_dir_manager_tests}")
+    except Exception as e:
+        print(f"Error cleaning up temp directory {temp_dir_manager_tests}: {e}")
+
+    print("\nAll ConsentManager examples with ConsentStore executed.")

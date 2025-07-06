@@ -21,31 +21,76 @@ from .policy_evaluator import PolicyEvaluator
 from .data_classifier import DataClassifier
 from .obfuscation_engine import ObfuscationEngine
 
+# Import new Stores
+from .policy_store import PolicyStore
+from .consent_store import ConsentStore
+
 
 class PrivacyProtocolApp:
-    def __init__(self):
+    def __init__(self, base_storage_path="./_app_data"):
+        self.base_storage_path = base_storage_path
         self.interpreter = Interpreter()
         self.clause_identifier = ClauseIdentifier()
         self.profiles = {}  # In-memory store for user profiles, user_id -> UserProfile
         self.risk_scorer = RiskScorer()
-        self.policy_tracker = PolicyTracker()
-        self.metadata_logger = MetadataLogger()
+        self.policy_tracker = PolicyTracker() # Could also be refactored to use a store
+        self.metadata_logger = MetadataLogger() # Could also be refactored
         self.recommender = Recommender()
         self.opt_out_navigator = OptOutNavigator()
-        self.consent_manager = ConsentManager()
-        self.policy_evaluator = PolicyEvaluator()
 
-        # Initialize DataClassifier and ObfuscationEngine
-        self.data_classifier = DataClassifier() # Can be initialized with a registry if needed
+        # Initialize stores
+        self.policy_store = PolicyStore(base_path=f"{self.base_storage_path}/policies/")
+        self.consent_store = ConsentStore(base_path=f"{self.base_storage_path}/consents/")
+
+        # Initialize managers and evaluators that depend on stores
+        self.consent_manager = ConsentManager(consent_store=self.consent_store)
+        self.policy_evaluator = PolicyEvaluator() # PolicyEvaluator might use PolicyStore in future
+
+        self.data_classifier = DataClassifier()
         self.obfuscation_engine = ObfuscationEngine()
 
-        # Placeholder storage for policies and attributes (consents managed by ConsentManager)
-        self.policies = {}  # In-memory store for PrivacyPolicy objects, policy_id -> PrivacyPolicy
-        # data_attributes_registry can be part of DataClassifier or a separate registry managed by the app
-        # For now, DataClassifier manages its own rules, but app might hold a central registry of known attributes.
+        # data_attributes_registry can be part of DataClassifier or a separate registry.
+        # App can manage a central one and pass to classifier if needed.
         self.data_attributes_registry = self.data_classifier.attribute_registry
 
-        print("PrivacyProtocolApp initialized with all components including Classifier and Obfuscator.")
+        # In-memory cache for frequently accessed policies, loaded from store
+        self._policy_cache = {} # policy_id_version_tuple -> Policy
+
+        print(f"PrivacyProtocolApp initialized. Storage at: {self.base_storage_path}")
+
+    def get_policy(self, policy_id: str, version: str = None) -> PrivacyPolicy | None:
+        """Gets a policy, using cache and loading from store if necessary."""
+        # Simplified: version=None means latest. PolicyStore handles loading latest.
+        # More complex caching would involve specific version lookups.
+        cache_key = (policy_id, version if version else "latest") # Crude key for latest
+
+        if cache_key in self._policy_cache:
+            return self._policy_cache[cache_key]
+
+        policy = self.policy_store.load_policy(policy_id, version=version)
+        if policy:
+            # If we loaded latest, the actual version might be different than "latest" string
+            # Re-key with actual version for more precise caching if version was None
+            actual_cache_key = (policy.policy_id, policy.version)
+            self._policy_cache[actual_cache_key] = policy
+            if version is None: # If we asked for latest, also cache it under the "latest" key
+                 self._policy_cache[cache_key] = policy
+        return policy
+
+    def save_policy(self, policy: PrivacyPolicy):
+        """Saves a policy to the store and updates cache."""
+        if self.policy_store.save_policy(policy):
+            cache_key = (policy.policy_id, policy.version)
+            self._policy_cache[cache_key] = policy
+            # Invalidate or update "latest" cache entry for this policy_id
+            latest_cache_key = (policy.policy_id, "latest")
+            if latest_cache_key in self._policy_cache:
+                # Re-fetch latest to update cache, or smarter logic
+                del self._policy_cache[latest_cache_key]
+                self.get_policy(policy.policy_id) # This will reload and cache latest
+        else:
+            print(f"Warning: Failed to save policy {policy.policy_id} v{policy.version} to store.")
+
 
     def get_or_create_user_profile(self, user_id):
         if user_id not in self.profiles:
@@ -111,27 +156,43 @@ def main():
     )
     print(f"\nData Deletion Email Template:\n{deletion_email}")
 
-    # Example of creating and storing a PrivacyPolicy (conceptual)
-    example_parsed_policy = PrivacyPolicy(
-        policy_id="main_example_policy_1", # Explicit ID for clarity
+    # --- Setup Policy and User for demonstrating persistence ---
+    app_storage_path = "./_app_storage_main_demo" # Define a specific path for this demo
+    # Clean up previous demo data if any - for fresh run
+    import shutil
+    try:
+        shutil.rmtree(app_storage_path)
+        print(f"Cleaned up old demo storage at {app_storage_path}")
+    except FileNotFoundError:
+        pass # No old data to clean
+
+    app = PrivacyProtocolApp(base_storage_path=app_storage_path) # Use the specific path
+
+    # Create and Save a PrivacyPolicy using PolicyStore via app method
+    example_policy_id = "main_example_policy_1"
+    example_policy_obj = PrivacyPolicy(
+        policy_id=example_policy_id,
         version="1.0",
         data_categories=[
-            DataCategory.PERSONAL_INFO,
-            DataCategory.USAGE_DATA,
-            DataCategory.TECHNICAL_INFO # Added for ip_address scenario
+            DataCategory.PERSONAL_INFO, DataCategory.USAGE_DATA, DataCategory.TECHNICAL_INFO
         ],
-        purposes=[Purpose.SERVICE_DELIVERY, Purpose.ANALYTICS], # Marketing added later for a test
+        purposes=[Purpose.SERVICE_DELIVERY, Purpose.ANALYTICS, Purpose.MARKETING], # Added MARKETING
         retention_period="Until user deletes account",
-        third_parties_shared_with=["Analytics Inc.", "SomeAnalyticsTool"], # Added SomeAnalyticsTool
+        third_parties_shared_with=["Analytics Inc.", "SomeAnalyticsTool"],
         legal_basis=[LegalBasis.CONSENT, LegalBasis.CONTRACT],
-        text_summary="This is a sample machine-readable policy summary."
+        text_summary="This is a sample machine-readable policy, now persisted."
     )
-    app.policies[example_parsed_policy.policy_id] = example_parsed_policy
-    print(f"\n--- Example PrivacyPolicy Created ---")
-    print(f"Policy ID: {example_parsed_policy.policy_id}, Version: {example_parsed_policy.version}")
+    app.save_policy(example_policy_obj)
+    print(f"\n--- Example PrivacyPolicy Saved ---")
+    print(f"Policy ID: {example_policy_obj.policy_id}, Version: {example_policy_obj.version} saved to store.")
 
-    # Define some data attributes that might be used - these are now classified on the fly mostly
-    # but we can pre-register some for specific obfuscation methods if DataClassifier doesn't set them.
+    # Load the policy back to ensure it was saved
+    loaded_policy = app.get_policy(example_policy_id, "1.0")
+    assert loaded_policy is not None and loaded_policy.version == "1.0"
+    print(f"Policy {loaded_policy.policy_id} v{loaded_policy.version} loaded successfully from store.")
+
+
+    # Define some data attributes (can still be done as before, registry is part of classifier)
     email_attr_def = DataAttribute(attribute_name="email_address", category=DataCategory.PERSONAL_INFO,
                                    obfuscation_method_preferred=ObfuscationMethod.HASH)
     app.data_attributes_registry[email_attr_def.attribute_name] = email_attr_def
@@ -141,23 +202,25 @@ def main():
     app.data_attributes_registry[ip_attr_def.attribute_name] = ip_attr_def
 
 
-    # User grants consent via ConsentManager
-    print(f"\n--- User '{user1_id}' Granting Consent for Policy '{example_parsed_policy.policy_id}' ---")
+    # User grants consent via ConsentManager (which now uses ConsentStore)
+    print(f"\n--- User '{user1_id}' Granting Consent for Policy '{loaded_policy.policy_id}' ---")
     user1_consent_data = UserConsent(
         user_id=user1_id,
-        policy_id=example_parsed_policy.policy_id,
-        policy_version=example_parsed_policy.version,
-        data_categories_consented=[DataCategory.PERSONAL_INFO], # Only consents to PERSONAL_INFO
-        purposes_consented=[Purpose.SERVICE_DELIVERY],      # Only for Service Delivery
-        third_parties_consented=[]                             # No third-party sharing consented
+        policy_id=loaded_policy.policy_id,
+        policy_version=loaded_policy.version,
+        data_categories_consented=[DataCategory.PERSONAL_INFO],
+        purposes_consented=[Purpose.SERVICE_DELIVERY],
+        third_parties_consented=[]
     )
     app.consent_manager.add_consent(user1_consent_data)
-    active_consent_user1 = app.consent_manager.get_active_consent(user_id=user1_id, policy_id=example_parsed_policy.policy_id)
-    if active_consent_user1:
-        print(f"Active consent for {user1_id}: Purposes: {[p.value for p in active_consent_user1.purposes_consented]}, Categories: {[dc.value for dc in active_consent_user1.data_categories_consented]}")
+    print(f"Consent ID {user1_consent_data.consent_id} added for user '{user1_id}'.")
+
+    active_consent_user1 = app.consent_manager.get_active_consent(user_id=user1_id, policy_id=loaded_policy.policy_id)
+    assert active_consent_user1 is not None
+    print(f"Retrieved active consent for {user1_id}: Purposes: {[p.value for p in active_consent_user1.purposes_consented]}, Categories: {[dc.value for dc in active_consent_user1.data_categories_consented]}")
 
 
-    # --- Data Classification and Obfuscation Examples ---
+    # --- Data Classification and Obfuscation Examples (using loaded_policy) ---
     print("\n--- Data Classification and Obfuscation Examples ---")
 
     sample_raw_data_user1 = {
@@ -177,7 +240,7 @@ def main():
 
     processed_data_service_delivery = app.obfuscation_engine.process_data_for_operation(
         raw_data=sample_raw_data_user1,
-        policy=example_parsed_policy,
+        policy=loaded_policy, # Use loaded policy
         consent=active_consent_user1,
         proposed_purpose=Purpose.SERVICE_DELIVERY,
         data_classifier=app.data_classifier,
@@ -185,56 +248,98 @@ def main():
     )
     print(f"Processed for SERVICE_DELIVERY (User1): {processed_data_service_delivery}")
     assert processed_data_service_delivery["email"] == "johndoe@example.com"
-    assert processed_data_service_delivery["ip_address"] != "198.51.100.42" # Should be redacted
-    assert processed_data_service_delivery["last_page_visited"] != "/home"   # Should be obfuscated
-    assert processed_data_service_delivery["user_id"] == "guid-xyz-123" # PERSONAL_INFO consented for SD
+    assert processed_data_service_delivery["ip_address"] != "198.51.100.42"
+    assert processed_data_service_delivery["last_page_visited"] != "/home"
+    assert processed_data_service_delivery["user_id"] == "guid-xyz-123"
 
 
     # Scenario B: Process data for ANALYTICS (user1 has NOT consented to ANALYTICS)
     # All fields should be obfuscated as the purpose is not consented.
-    # Policy itself allows ANALYTICS for PERSONAL_INFO, USAGE_DATA.
-    example_parsed_policy.purposes.append(Purpose.ANALYTICS) # Ensure policy allows it
+    # Policy itself allows ANALYTICS for PERSONAL_INFO, USAGE_DATA, TECHNICAL_INFO.
 
     processed_data_analytics_user1 = app.obfuscation_engine.process_data_for_operation(
         raw_data=sample_raw_data_user1,
-        policy=example_parsed_policy,
+        policy=loaded_policy, # Use loaded policy
         consent=active_consent_user1, # This consent doesn't allow ANALYTICS
         proposed_purpose=Purpose.ANALYTICS,
         data_classifier=app.data_classifier,
         policy_evaluator=app.policy_evaluator
     )
     print(f"Processed for ANALYTICS (User1 - no consent for this purpose): {processed_data_analytics_user1}")
-    assert processed_data_analytics_user1["email"] != "johndoe@example.com"     # Obfuscated (hashed by pre-reg)
-    assert processed_data_analytics_user1["ip_address"] != "198.51.100.42" # Obfuscated (redacted by pre-reg)
-    assert processed_data_analytics_user1["last_page_visited"] != "/home"       # Obfuscated
-    assert processed_data_analytics_user1["user_id"] != "guid-xyz-123" # Obfuscated
+    assert processed_data_analytics_user1["email"] != "johndoe@example.com"
+    assert processed_data_analytics_user1["ip_address"] != "198.51.100.42"
+    assert processed_data_analytics_user1["last_page_visited"] != "/home"
+    assert processed_data_analytics_user1["user_id"] != "guid-xyz-123"
 
 
     # Scenario C: User2 - different consent (consents to ANALYTICS for USAGE_DATA and TECHNICAL_INFO)
     user2_id = "user456"
     user2_consent_data = UserConsent(
-        user_id=user2_id, policy_id=example_parsed_policy.policy_id, policy_version=example_parsed_policy.version,
+        user_id=user2_id, policy_id=loaded_policy.policy_id, policy_version=loaded_policy.version,
         data_categories_consented=[DataCategory.USAGE_DATA, DataCategory.TECHNICAL_INFO],
         purposes_consented=[Purpose.ANALYTICS],
         third_parties_consented=["SomeAnalyticsTool"]
     )
     app.consent_manager.add_consent(user2_consent_data)
-    active_consent_user2 = app.consent_manager.get_active_consent(user_id=user2_id, policy_id=example_parsed_policy.policy_id)
+    active_consent_user2 = app.consent_manager.get_active_consent(user_id=user2_id, policy_id=loaded_policy.policy_id)
 
     processed_data_analytics_user2 = app.obfuscation_engine.process_data_for_operation(
-        raw_data=sample_raw_data_user1, # Same raw data
-        policy=example_parsed_policy,
-        consent=active_consent_user2,   # User2's consent
+        raw_data=sample_raw_data_user1,
+        policy=loaded_policy, # Use loaded policy
+        consent=active_consent_user2,
         proposed_purpose=Purpose.ANALYTICS,
         data_classifier=app.data_classifier,
         policy_evaluator=app.policy_evaluator,
         proposed_third_party="SomeAnalyticsTool"
     )
     print(f"Processed for ANALYTICS (User2 - specific consent): {processed_data_analytics_user2}")
-    assert processed_data_analytics_user2["email"] != "johndoe@example.com" # PERSONAL_INFO not consented by User2 for ANALYTICS
-    assert processed_data_analytics_user2["ip_address"] == "198.51.100.42"   # TECHNICAL_INFO consented for ANALYTICS
-    assert processed_data_analytics_user2["last_page_visited"] == "/home"    # USAGE_DATA consented for ANALYTICS
-    assert processed_data_analytics_user2["user_id"] != "guid-xyz-123" # PERSONAL_INFO not consented
+    assert processed_data_analytics_user2["email"] != "johndoe@example.com"
+    assert processed_data_analytics_user2["ip_address"] == "198.51.100.42"
+    assert processed_data_analytics_user2["last_page_visited"] == "/home"
+    assert processed_data_analytics_user2["user_id"] != "guid-xyz-123"
+
+    # --- Simulate App Restart ---
+    print("\n--- Simulating App Restart ---")
+    app_restarted = PrivacyProtocolApp(base_storage_path=app_storage_path)
+
+    # Verify policy can be loaded
+    reloaded_policy = app_restarted.get_policy(example_policy_id, "1.0")
+    assert reloaded_policy is not None
+    assert reloaded_policy.text_summary == "This is a sample machine-readable policy, now persisted."
+    print(f"Policy '{reloaded_policy.policy_id}' v{reloaded_policy.version} reloaded successfully.")
+
+    # Verify user1's consent can be loaded
+    reloaded_consent_user1 = app_restarted.consent_manager.get_active_consent(user1_id, example_policy_id)
+    assert reloaded_consent_user1 is not None
+    assert reloaded_consent_user1.consent_id == user1_consent_data.consent_id
+    print(f"Active consent for '{user1_id}' reloaded successfully.")
+
+    # Verify user2's consent can be loaded
+    reloaded_consent_user2 = app_restarted.consent_manager.get_active_consent(user2_id, example_policy_id)
+    assert reloaded_consent_user2 is not None
+    assert reloaded_consent_user2.consent_id == user2_consent_data.consent_id
+    print(f"Active consent for '{user2_id}' reloaded successfully.")
+
+    # Re-run an evaluation with reloaded components
+    processed_data_restarted = app_restarted.obfuscation_engine.process_data_for_operation(
+        raw_data=sample_raw_data_user1,
+        policy=reloaded_policy,
+        consent=reloaded_consent_user2, # Using user2's consent for ANALYTICS
+        proposed_purpose=Purpose.ANALYTICS,
+        data_classifier=app_restarted.data_classifier,
+        policy_evaluator=app_restarted.policy_evaluator,
+        proposed_third_party="SomeAnalyticsTool"
+    )
+    print(f"Processed for ANALYTICS (User2, after restart): {processed_data_restarted}")
+    assert processed_data_restarted["ip_address"] == "198.51.100.42"
+    assert processed_data_restarted["last_page_visited"] == "/home"
+
+    # Clean up demo storage path after successful run
+    try:
+        shutil.rmtree(app_storage_path)
+        print(f"Cleaned up demo storage at {app_storage_path} after successful run.")
+    except FileNotFoundError:
+        pass
 
 
 if __name__ == "__main__":

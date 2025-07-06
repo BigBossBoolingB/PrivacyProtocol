@@ -18,8 +18,10 @@ from .action_center.recommender import Recommender
 from .action_center.opt_out_navigator import OptOutNavigator
 from .consent_manager import ConsentManager
 from .policy_evaluator import PolicyEvaluator
-from .data_classifier import DataClassifier # Added
-from .obfuscation_engine import ObfuscationEngine # Added
+from .data_classifier import DataClassifier
+from .obfuscation_engine import ObfuscationEngine
+from .policy_store import PolicyStore # Added
+from .consent_store import ConsentStore # Added
 
 # Main Application Orchestrator
 from .main import PrivacyProtocolApp
@@ -47,8 +49,10 @@ __all__ = [
     "OptOutNavigator",
     "ConsentManager",
     "PolicyEvaluator",
-    "DataClassifier", # Added
-    "ObfuscationEngine", # Added
+    "DataClassifier",
+    "ObfuscationEngine",
+    "PolicyStore", # Added
+    "ConsentStore", # Added
 
     # Main App
     "PrivacyProtocolApp",
