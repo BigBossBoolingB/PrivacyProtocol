@@ -13,6 +13,10 @@ from .policy import PrivacyPolicy, DataCategory, Purpose, LegalBasis
 from .consent import UserConsent
 from .data_attribute import DataAttribute, SensitivityLevel, ObfuscationMethod
 
+# Import new manager and evaluator
+from .consent_manager import ConsentManager
+from .policy_evaluator import PolicyEvaluator
+
 
 class PrivacyProtocolApp:
     def __init__(self):
@@ -25,12 +29,15 @@ class PrivacyProtocolApp:
         self.recommender = Recommender()
         self.opt_out_navigator = OptOutNavigator()
 
-        # Placeholder storage for new data structures
-        self.policies = {}  # In-memory store for PrivacyPolicy objects, policy_id -> PrivacyPolicy
-        self.consents = {}  # In-memory store for UserConsent objects, consent_id -> UserConsent
-        self.data_attributes = {} # In-memory store for DataAttribute objects, attribute_id -> DataAttribute
+        # Initialize new managers and evaluators
+        self.consent_manager = ConsentManager()
+        self.policy_evaluator = PolicyEvaluator()
 
-        print("PrivacyProtocolApp initialized with core components and data structure placeholders.")
+        # Placeholder storage for policies and attributes (consents managed by ConsentManager)
+        self.policies = {}  # In-memory store for PrivacyPolicy objects, policy_id -> PrivacyPolicy
+        self.data_attributes_registry = {} # In-memory store for DataAttribute objects, attribute_id -> DataAttribute
+
+        print("PrivacyProtocolApp initialized with ConsentManager and PolicyEvaluator.")
 
     def get_or_create_user_profile(self, user_id):
         if user_id not in self.profiles:
@@ -107,22 +114,110 @@ def main():
         text_summary="This is a sample machine-readable policy summary."
     )
     app.policies[example_parsed_policy.policy_id] = example_parsed_policy
-    print(f"\n--- Example Parsed Policy Stored ---")
-    print(f"Stored policy with ID: {example_parsed_policy.policy_id}")
-    print(f"Total policies in app store: {len(app.policies)}")
+    print(f"\n--- Example PrivacyPolicy Created ---")
+    print(f"Policy ID: {example_parsed_policy.policy_id}, Version: {example_parsed_policy.version}")
 
-    # Example of creating and storing UserConsent (conceptual)
-    example_consent = UserConsent(
+    # Define some data attributes that might be used
+    email_attribute = DataAttribute(attribute_name="user_email", category=DataCategory.PERSONAL_INFO)
+    app.data_attributes_registry[email_attribute.attribute_id] = email_attribute
+
+    usage_attribute = DataAttribute(attribute_name="page_views", category=DataCategory.USAGE_DATA)
+    app.data_attributes_registry[usage_attribute.attribute_id] = usage_attribute
+
+
+    # User grants consent via ConsentManager
+    print(f"\n--- User '{user1_id}' Granting Consent ---")
+    user1_consent_to_policy = UserConsent(
         user_id=user1_id,
         policy_id=example_parsed_policy.policy_id,
         policy_version=example_parsed_policy.version,
-        data_categories_consented=[DataCategory.PERSONAL_INFO],
-        purposes_consented=[Purpose.SERVICE_DELIVERY]
+        data_categories_consented=[DataCategory.PERSONAL_INFO, DataCategory.USAGE_DATA], # Consents to both
+        purposes_consented=[Purpose.SERVICE_DELIVERY, Purpose.ANALYTICS],      # Consents to Service Delivery & Analytics
+        third_parties_consented=["Analytics Inc."]                             # Consents to one third party
     )
-    app.consents[example_consent.consent_id] = example_consent
-    print(f"\n--- Example User Consent Stored ---")
-    print(f"Stored consent with ID: {example_consent.consent_id} for user {user1_id}")
-    print(f"Total consents in app store: {len(app.consents)}")
+    app.consent_manager.add_consent(user1_consent_to_policy)
+    print(f"Consent ID {user1_consent_to_policy.consent_id} added for user '{user1_id}' for policy '{example_parsed_policy.policy_id}'.")
+    retrieved_consent = app.consent_manager.get_active_consent(user_id=user1_id, policy_id=example_parsed_policy.policy_id)
+    if retrieved_consent:
+        print(f"Retrieved active consent: version {retrieved_consent.policy_version}, purposes: {[p.value for p in retrieved_consent.purposes_consented]}")
+
+
+    # --- Policy Evaluation Examples ---
+    print("\n--- Policy Evaluation Examples ---")
+
+    # Scenario 1: Use email for Service Delivery (should be permitted)
+    attributes_for_op1 = [email_attribute]
+    purpose_op1 = Purpose.SERVICE_DELIVERY
+    is_permitted1 = app.policy_evaluator.is_operation_permitted(
+        policy=example_parsed_policy,
+        consent=retrieved_consent,
+        data_attributes=attributes_for_op1,
+        proposed_purpose=purpose_op1
+    )
+    print(f"Operation: Use '{email_attribute.attribute_name}' for '{purpose_op1.value}'. Permitted: {is_permitted1}")
+    assert is_permitted1 == True
+
+    # Scenario 2: Use email for Marketing (user did not consent to Marketing purpose)
+    purpose_op2 = Purpose.MARKETING # Policy allows Marketing, but user consent doesn't
+    is_permitted2 = app.policy_evaluator.is_operation_permitted(
+        policy=example_parsed_policy, # Policy allows marketing
+        consent=retrieved_consent,    # Consent does not have marketing
+        data_attributes=attributes_for_op1, # email
+        proposed_purpose=purpose_op2
+    )
+    print(f"Operation: Use '{email_attribute.attribute_name}' for '{purpose_op2.value}'. Permitted: {is_permitted2}")
+    assert is_permitted2 == False # example_parsed_policy doesn't list MARKETING, this should be false from policy check.
+                                  # Let's assume policy *did* list marketing for a better consent test.
+                                  # Correcting example_parsed_policy to include MARKETING for this test.
+    example_parsed_policy.purposes.append(Purpose.MARKETING) # Temporarily add for this test case.
+    is_permitted2_policy_allows = app.policy_evaluator.is_operation_permitted(
+        policy=example_parsed_policy,
+        consent=retrieved_consent, # User consent still doesn't have MARKETING
+        data_attributes=attributes_for_op1,
+        proposed_purpose=purpose_op2
+    )
+    print(f"Operation (policy updated): Use '{email_attribute.attribute_name}' for '{purpose_op2.value}'. Permitted: {is_permitted2_policy_allows}")
+    assert is_permitted2_policy_allows == False # Still false due to consent
+
+    # Scenario 3: Use usage_data for Analytics with "Analytics Inc." (should be permitted)
+    attributes_for_op3 = [usage_attribute]
+    purpose_op3 = Purpose.ANALYTICS
+    third_party_op3 = "Analytics Inc."
+    is_permitted3 = app.policy_evaluator.is_operation_permitted(
+        policy=example_parsed_policy,
+        consent=retrieved_consent,
+        data_attributes=attributes_for_op3,
+        proposed_purpose=purpose_op3,
+        proposed_third_party=third_party_op3
+    )
+    print(f"Operation: Use '{usage_attribute.attribute_name}' for '{purpose_op3.value}' with '{third_party_op3}'. Permitted: {is_permitted3}")
+    assert is_permitted3 == True
+
+    # Scenario 4: Use email for Analytics with "OtherCompany" (third party not consented)
+    third_party_op4 = "OtherCompany"
+    is_permitted4 = app.policy_evaluator.is_operation_permitted(
+        policy=example_parsed_policy,
+        consent=retrieved_consent,
+        data_attributes=attributes_for_op1, # email
+        proposed_purpose=purpose_op3,       # Analytics
+        proposed_third_party=third_party_op4
+    )
+    print(f"Operation: Use '{email_attribute.attribute_name}' for '{purpose_op3.value}' with '{third_party_op4}'. Permitted: {is_permitted4}")
+    assert is_permitted4 == False
+
+    # Scenario 5: User revokes consent, then try an operation
+    print(f"\n--- User '{user1_id}' Revoking Consent ---")
+    app.consent_manager.revoke_consent(user_id=user1_id, policy_id=example_parsed_policy.policy_id)
+    print(f"Consent for policy '{example_parsed_policy.policy_id}' for user '{user1_id}' revoked.")
+    revoked_consent_check = app.consent_manager.get_active_consent(user_id=user1_id, policy_id=example_parsed_policy.policy_id)
+    is_permitted5 = app.policy_evaluator.is_operation_permitted(
+        policy=example_parsed_policy,
+        consent=revoked_consent_check, # Should be None or inactive
+        data_attributes=attributes_for_op1,
+        proposed_purpose=purpose_op1
+    )
+    print(f"Operation after revocation: Use '{email_attribute.attribute_name}' for '{purpose_op1.value}'. Permitted: {is_permitted5}")
+    assert is_permitted5 == False
 
 
 if __name__ == "__main__":

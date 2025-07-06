@@ -7,7 +7,7 @@ from .policy import PrivacyPolicy, DataCategory, Purpose, LegalBasis
 from .consent import UserConsent
 from .data_attribute import DataAttribute, SensitivityLevel, ObfuscationMethod
 
-# Core Functional Modules (Placeholders for now, but good to list them)
+# Core Functional Modules
 from .interpretation.interpreter import Interpreter
 from .interpretation.clause_identifier import ClauseIdentifier
 from .user_management.profiles import UserProfile
@@ -16,6 +16,8 @@ from .data_tracking.policy_tracker import PolicyTracker
 from .data_tracking.metadata_logger import MetadataLogger
 from .action_center.recommender import Recommender
 from .action_center.opt_out_navigator import OptOutNavigator
+from .consent_manager import ConsentManager # Added
+from .policy_evaluator import PolicyEvaluator # Added
 
 # Main Application Orchestrator
 from .main import PrivacyProtocolApp
@@ -41,6 +43,8 @@ __all__ = [
     "MetadataLogger",
     "Recommender",
     "OptOutNavigator",
+    "ConsentManager", # Added
+    "PolicyEvaluator", # Added
 
     # Main App
     "PrivacyProtocolApp",
