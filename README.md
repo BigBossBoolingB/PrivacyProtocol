@@ -65,9 +65,74 @@ This project is a testament to the fact that with the right tools, everyone can 
 
 ---
 
-## Getting Started (Conceptual)
+## Project Structure
 
-*(This section will provide practical steps for early adopters and potential contributors to engage with the project, explore its conceptual designs, and ultimately use the application.)*
+The project is organized into the following main directories:
+
+*   `privacy_protocol_core/`: Contains the core logic of the application.
+    *   `interpretation/`: Modules for interpreting policy text (e.g., `interpreter.py`, `clause_identifier.py`).
+    *   `user_management/`: Handles user profiles and preferences (`profiles.py`).
+    *   `risk_assessment/`: Logic for scoring privacy risks (`scorer.py`).
+    *   `data_tracking/`: Modules for historical policy tracking (`policy_tracker.py`) and metadata logging (`metadata_logger.py`).
+    *   `action_center/`: Generates recommendations and assists with opt-outs (`recommender.py`, `opt_out_navigator.py`).
+    *   `utils/`: Shared utility functions (`helpers.py`).
+    *   `main.py`: Main application entry point and orchestrator.
+    *   `config.py`: Application configuration settings.
+*   `tests/`: Contains all unit tests, mirroring the structure of `privacy_protocol_core`.
+*   `docs/`: Project documentation.
+    *   `concepts/`: Detailed design documents for core features and concepts.
+*   `scripts/`: Utility scripts for development, deployment, etc. (currently empty).
+*   `examples/`: Example privacy policies or usage scenarios (currently empty).
+*   `api/`: Code related to a potential future API for Privacy Protocol (currently empty).
+*   `LICENSE`: Project license file.
+*   `README.md`: This file.
+*   `requirements.txt`: Python package dependencies.
+*   `.gitignore`: Specifies intentionally untracked files that Git should ignore.
+*   `CONTRIBUTING.md`: Guidelines for contributing to the project.
+*   `AGENTS.md`: Special instructions for AI agents working on this codebase.
+
+## Getting Started (Initial Setup)
+
+This project is currently in the early stages of development, focusing on building the core Python backend.
+
+1.  **Prerequisites:**
+    *   Python 3.8 or higher.
+    *   `pip` for package installation.
+    *   `git` for version control.
+
+2.  **Clone the Repository:**
+    ```bash
+    git clone <repository_url>
+    cd PrivacyProtocol
+    ```
+    *(Replace `<repository_url>` with the actual URL of the repository)*
+
+3.  **Set up a Virtual Environment (Recommended):**
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ```
+
+4.  **Install Dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+5.  **Run the Placeholder Main Application:**
+    The current `main.py` script initializes the application components and runs a simple example analysis.
+    ```bash
+    python -m privacy_protocol_core.main
+    ```
+    You should see output demonstrating the basic interaction of the placeholder modules.
+
+6.  **Run Tests:**
+    To ensure the basic components are functioning as expected:
+    ```bash
+    python -m unittest discover -s tests
+    ```
+    *(Note: These tests will be based on the initial placeholder logic and will become more comprehensive as features are developed.)*
+
+This setup allows you to explore the initial codebase structure and run the placeholder functionalities.
 
 ---
 
@@ -75,9 +140,12 @@ This project is a testament to the fact that with the right tools, everyone can 
 
 Privacy Protocol is an open invitation to shape the future of digital privacy. If you're a developer, a privacy advocate, a designer, or simply a visionary passionate about user rights and responsible technology, we welcome your contributions.
 
-* **Explore the Concepts:** Dive into our detailed design documents (`/concepts/`).
-* **Engage in Discussions:** Join our community forums to ask questions, share ideas, and connect with fellow builders.
-* **Contribute Code:** Help us bring this vision to life.
+* **Explore the Concepts:** Dive into our detailed design documents (`docs/concepts/`).
+* **Understand the Structure:** Familiarize yourself with the `Project Structure` outlined above.
+* **Set Up the Environment:** Follow the `Getting Started (Initial Setup)` instructions.
+* **Run Tests:** Execute the test suite to see the current state of implemented (placeholder) functionalities.
+* **Engage in Discussions:** Join our community forums (link to be provided) to ask questions, share ideas, and connect with fellow builders.
+* **Contribute Code:** Check out `CONTRIBUTING.md` for guidelines on how to contribute. Look for "TODO" comments in the code or open issues on GitHub (link to be provided) for areas where help is needed.
 
 Join me in forging the protocols that will define the next era of digital sovereignty.
 

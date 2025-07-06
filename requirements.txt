@@ -1,0 +1,23 @@
+# Core Testing
+pytest
+unittest2 # if using Python 2.7 features, else unittest is built-in for Py3
+
+# NLP Libraries (Conceptual - choose as needed)
+# spacy
+# nltk
+# transformers
+
+# Web Framework (Conceptual - if building an API/Web App)
+# flask
+# fastapi
+# uvicorn # for serving FastAPI
+
+# Data Handling (Conceptual)
+# pandas # For data manipulation if handling datasets of policies/clauses
+# numpy
+
+# Utility
+# python-dotenv # For managing environment variables from .env file
+
+# Add other dependencies as the project evolves
+# Example: database connectors (psycopg2-binary, mysqlclient), requests for HTTP calls, etc.
