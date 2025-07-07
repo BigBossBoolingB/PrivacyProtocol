@@ -25,16 +25,20 @@ from .obfuscation_engine import ObfuscationEngine
 from .policy_store import PolicyStore
 from .consent_store import ConsentStore
 
+# Import PrivacyEnforcer and MockDataGenerator
+from .privacy_enforcer import PrivacyEnforcer
+from .demo_helpers.mock_data_generator import MockDataGenerator
+
 
 class PrivacyProtocolApp:
     def __init__(self, base_storage_path="./_app_data"):
         self.base_storage_path = base_storage_path
-        self.interpreter = Interpreter()
-        self.clause_identifier = ClauseIdentifier()
+        self.interpreter = Interpreter() # Remains for original policy text analysis
+        self.clause_identifier = ClauseIdentifier() # Remains
         self.profiles = {}  # In-memory store for user profiles, user_id -> UserProfile
-        self.risk_scorer = RiskScorer()
-        self.policy_tracker = PolicyTracker() # Could also be refactored to use a store
-        self.metadata_logger = MetadataLogger() # Could also be refactored
+        self.risk_scorer = RiskScorer() # Remains
+        self.policy_tracker = PolicyTracker()
+        self.metadata_logger = MetadataLogger()
         self.recommender = Recommender()
         self.opt_out_navigator = OptOutNavigator()
 
@@ -42,21 +46,25 @@ class PrivacyProtocolApp:
         self.policy_store = PolicyStore(base_path=f"{self.base_storage_path}/policies/")
         self.consent_store = ConsentStore(base_path=f"{self.base_storage_path}/consents/")
 
-        # Initialize managers and evaluators that depend on stores
+        # Initialize core components that depend on stores or each other
         self.consent_manager = ConsentManager(consent_store=self.consent_store)
-        self.policy_evaluator = PolicyEvaluator() # PolicyEvaluator might use PolicyStore in future
-
+        self.policy_evaluator = PolicyEvaluator()
         self.data_classifier = DataClassifier()
         self.obfuscation_engine = ObfuscationEngine()
 
-        # data_attributes_registry can be part of DataClassifier or a separate registry.
-        # App can manage a central one and pass to classifier if needed.
+        # Initialize PrivacyEnforcer with all its dependencies
+        self.privacy_enforcer = PrivacyEnforcer(
+            policy_store=self.policy_store,
+            consent_manager=self.consent_manager,
+            data_classifier=self.data_classifier,
+            policy_evaluator=self.policy_evaluator,
+            obfuscation_engine=self.obfuscation_engine
+        )
+
         self.data_attributes_registry = self.data_classifier.attribute_registry
+        self._policy_cache = {}
 
-        # In-memory cache for frequently accessed policies, loaded from store
-        self._policy_cache = {} # policy_id_version_tuple -> Policy
-
-        print(f"PrivacyProtocolApp initialized. Storage at: {self.base_storage_path}")
+        print(f"PrivacyProtocolApp initialized with PrivacyEnforcer. Storage at: {self.base_storage_path}")
 
     def get_policy(self, policy_id: str, version: str = None) -> PrivacyPolicy | None:
         """Gets a policy, using cache and loading from store if necessary."""
@@ -340,6 +348,81 @@ def main():
         print(f"Cleaned up demo storage at {app_storage_path} after successful run.")
     except FileNotFoundError:
         pass
+
+    # --- PrivacyEnforcer Demonstration ---
+    print("\n\n--- PrivacyEnforcer End-to-End Demonstration ---")
+    # Re-initialize app for a clean enforcer demo with the same persisted data
+    enforcer_app = PrivacyProtocolApp(base_storage_path=app_storage_path) # This will reload policy/consent
+
+    mock_data_gen = MockDataGenerator()
+
+    # User1 (user123) has consent for PERSONAL_INFO for SERVICE_DELIVERY
+    # User2 (user456) has consent for USAGE_DATA, TECHNICAL_INFO for ANALYTICS with "SomeAnalyticsTool"
+
+    print(f"\n--- Processing for User: {user1_id} ---")
+    login_event_u1 = mock_data_gen.generate_user_login_event(user_id=user1_id)
+    print(f"Original Login Event (User1): {login_event_u1}")
+
+    processed_login_sd_u1, status_login_sd_u1 = enforcer_app.privacy_enforcer.process_data_record(
+        user_id=user1_id, policy_id=example_policy_id, policy_version="1.0",
+        data_record=login_event_u1, intended_purpose=Purpose.SERVICE_DELIVERY
+    )
+    print(f"Processed for SERVICE_DELIVERY (User1): {processed_login_sd_u1}, Status: {status_login_sd_u1}")
+    # Expected: user_id raw, ip_address obfuscated (TECHNICAL_INFO not consented for SD by user1)
+    assert processed_login_sd_u1['user_id'] == user1_id
+    assert processed_login_sd_u1['ip_address'] != login_event_u1['ip_address']
+
+
+    profile_update_u1 = mock_data_gen.generate_user_profile_data(user_id=user1_id, include_optional=False)
+    profile_update_u1['email'] = "new.email.u1@example.com" # Ensure email key exists
+    print(f"Original Profile Update (User1): {profile_update_u1}")
+    processed_profile_marketing_u1, status_profile_marketing_u1 = enforcer_app.privacy_enforcer.process_data_record(
+        user_id=user1_id, policy_id=example_policy_id, policy_version="1.0",
+        data_record=profile_update_u1, intended_purpose=Purpose.MARKETING # User1 did not consent to MARKETING
+    )
+    print(f"Processed for MARKETING (User1): {processed_profile_marketing_u1}, Status: {status_profile_marketing_u1}")
+    # Expected: all PII fields obfuscated as MARKETING purpose not consented by user1
+    assert processed_profile_marketing_u1['email'] != profile_update_u1['email']
+    assert processed_profile_marketing_u1['full_name'] != profile_update_u1['full_name']
+
+
+    print(f"\n--- Processing for User: {user2_id} ---")
+    page_view_u2 = mock_data_gen.generate_page_view_event(user_id=user2_id, page_url="/analytics_dashboard")
+    print(f"Original Page View (User2): {page_view_u2}")
+    processed_pv_analytics_u2, status_pv_analytics_u2 = enforcer_app.privacy_enforcer.process_data_record(
+        user_id=user2_id, policy_id=example_policy_id, policy_version="1.0",
+        data_record=page_view_u2, intended_purpose=Purpose.ANALYTICS, intended_third_party="SomeAnalyticsTool"
+    )
+    print(f"Processed for ANALYTICS with SomeAnalyticsTool (User2): {processed_pv_analytics_u2}, Status: {status_pv_analytics_u2}")
+    # Expected: user_id (Other by default) obfuscated. page_url, referrer, ip_address (USAGE/TECHNICAL) raw.
+    assert processed_pv_analytics_u2['user_id'] != user2_id # Classified as OTHER, not consented for ANALYTICS
+    assert processed_pv_analytics_u2['page_url'] == page_view_u2['page_url']
+    assert processed_pv_analytics_u2['ip_address'] == page_view_u2['ip_address']
+    if page_view_u2.get('referrer'): # Referrer is optional
+         assert processed_pv_analytics_u2['referrer'] == page_view_u2['referrer']
+
+
+    sensor_data_u2 = mock_data_gen.generate_sensor_data(device_id=f"device_{user2_id}")
+    sensor_data_u2['user_id_associated'] = user2_id # Add a PII field not typically in sensor data
+    print(f"Original Sensor Data (User2): {sensor_data_u2}")
+    processed_sensor_sd_u2, status_sensor_sd_u2 = enforcer_app.privacy_enforcer.process_data_record(
+        user_id=user2_id, policy_id=example_policy_id, policy_version="1.0",
+        data_record=sensor_data_u2, intended_purpose=Purpose.SERVICE_DELIVERY # User2 did not consent any category for SD
+    )
+    print(f"Processed for SERVICE_DELIVERY (User2): {processed_sensor_sd_u2}, Status: {status_sensor_sd_u2}")
+    # Expected: All fields obfuscated as User2 has no consent for SERVICE_DELIVERY
+    assert processed_sensor_sd_u2['device_id'] != sensor_data_u2['device_id']
+    assert processed_sensor_sd_u2['latitude'] != sensor_data_u2['latitude']
+    assert processed_sensor_sd_u2['user_id_associated'] != sensor_data_u2['user_id_associated']
+
+    # Final cleanup of demo storage
+    try:
+        shutil.rmtree(app_storage_path)
+        print(f"\nFinal cleanup of demo storage at {app_storage_path} successful.")
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"\nError during final cleanup of demo storage: {e}")
 
 
 if __name__ == "__main__":

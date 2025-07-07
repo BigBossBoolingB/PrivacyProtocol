@@ -20,8 +20,12 @@ from .consent_manager import ConsentManager
 from .policy_evaluator import PolicyEvaluator
 from .data_classifier import DataClassifier
 from .obfuscation_engine import ObfuscationEngine
-from .policy_store import PolicyStore # Added
-from .consent_store import ConsentStore # Added
+from .policy_store import PolicyStore
+from .consent_store import ConsentStore
+from .privacy_enforcer import PrivacyEnforcer # Added
+
+# Demo Helpers (optional to expose at package root)
+# from .demo_helpers.mock_data_generator import MockDataGenerator
 
 # Main Application Orchestrator
 from .main import PrivacyProtocolApp
@@ -51,8 +55,9 @@ __all__ = [
     "PolicyEvaluator",
     "DataClassifier",
     "ObfuscationEngine",
-    "PolicyStore", # Added
-    "ConsentStore", # Added
+    "PolicyStore",
+    "ConsentStore",
+    "PrivacyEnforcer", # Added
 
     # Main App
     "PrivacyProtocolApp",
