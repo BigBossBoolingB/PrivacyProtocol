@@ -2,6 +2,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 import uuid
 
+import hashlib # Added for more realistic placeholder signature content
+
 try:
     from .consent import UserConsent
     from .policy import PrivacyPolicy # Might be needed for type hinting or context
@@ -103,8 +105,31 @@ class ConsentManager:
     def sign_consent(self, consent: UserConsent) -> UserConsent:
         """
         Placeholder for cryptographically signing a consent object.
+
+        Conceptual Link: DigiSocialBlock & EmPower1 Blockchain.
+        In a real implementation, this would involve:
+        1. User's private key (managed by a wallet system, e.g., linked to DigiSocialBlock identity).
+        2. Creating a canonical representation of the consent data (e.g., sorted JSON string).
+        3. Signing the hash of this canonical data using the user's private key (e.g., ECDSA).
+           Ref: DigiSocialBlock `pkg/identity/identity.go` (Sign) and `pkg/ledger/transaction.go` (Sign method for transactions which implies signing arbitrary data).
+        4. Storing the generated signature in `consent.signature`.
+        5. Optionally, the signed consent (or its hash and signature) could be recorded on a
+           decentralized ledger (e.g., EmPower1 or a dedicated "Consent Chain") for immutable,
+           verifiable proof of consent at a specific time. This would involve creating a transaction.
+
+        The current implementation is a simple placeholder.
         """
-        consent.signature = f"signed_placeholder_{uuid.uuid4()}"
+        # Simulate hashing key parts of consent for a more realistic placeholder sig content
+        consent_details_for_hash = (
+            f"{consent.user_id}:{consent.policy_id}:{consent.policy_version}:"
+            f"{','.join(sorted([dc.value for dc in consent.data_categories_consented]))}:"
+            f"{','.join(sorted([p.value for p in consent.purposes_consented]))}:"
+            f"{consent.timestamp}:{consent.is_active}:{consent.expires_at or ''}"
+        )
+        hashed_details = hashlib.sha256(consent_details_for_hash.encode('utf-8')).hexdigest()[:16] # Short hash for placeholder
+
+        consent.signature = f"signed_placeholder_{uuid.uuid4()}_{hashed_details}"
+
         # In a real scenario, would also save this updated consent (with signature) to the store.
         # self.store.save_consent(consent)
         print(f"Placeholder: Consent {consent.consent_id} signed with '{consent.signature}'.")
@@ -113,9 +138,22 @@ class ConsentManager:
     def verify_consent_signature(self, consent: UserConsent) -> bool:
         """
         Placeholder for verifying the cryptographic signature of a consent object.
+
+        Conceptual Link: DigiSocialBlock & EmPower1 Blockchain.
+        This would involve:
+        1. Retrieving the user's public key (associated with their DigiSocialBlock identity).
+        2. Re-creating the same canonical representation of consent data that was signed.
+        3. Using the public key and the signature from `consent.signature` to verify the signature
+           against the hash of the canonical data.
+           Ref: DigiSocialBlock `pkg/identity/identity.go` (VerifySignature).
+        4. If integrated with a "Consent Chain", this might also involve checking the transaction
+           on the ledger that recorded this consent.
+
+        The current implementation is a simple placeholder check.
         """
         if consent.signature and consent.signature.startswith("signed_placeholder_"):
-            print(f"Placeholder: Signature for consent {consent.consent_id} is conceptually valid.")
+            # Conceptual: could try to re-calculate the dummy hash and check if it's in the sig
+            print(f"Placeholder: Signature for consent {consent.consent_id} is conceptually valid (placeholder check).")
             return True
         print(f"Placeholder: Signature for consent {consent.consent_id} is invalid or missing.")
         return False

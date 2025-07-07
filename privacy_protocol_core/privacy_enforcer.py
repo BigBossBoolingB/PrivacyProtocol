@@ -1,4 +1,14 @@
+from __future__ import annotations # For string literal type hints
 from typing import Tuple, Dict, Any, Optional
+
+# Attempt to import DataTransformationAuditor first and define dummy if needed
+try:
+    from .auditing.data_auditor import DataTransformationAuditor
+except ImportError:
+    class DataTransformationAuditor: # Dummy for standalone if auditing module not found
+        @staticmethod
+        def hash_data(data): return "mock_hash_from_enforcer_dummy_auditor"
+        def log_event(self, *args, **kwargs): pass
 
 try:
     from .policy import PrivacyPolicy, Purpose
@@ -9,8 +19,7 @@ try:
     from .policy_evaluator import PolicyEvaluator
     from .obfuscation_engine import ObfuscationEngine
 except ImportError: # For standalone testing/mocking if needed
-    # Define dummy classes if run standalone and imports fail,
-    # though tests should use mocks.
+    # Define other dummy classes if run standalone and imports fail
     class PrivacyPolicy: pass
     class Purpose: pass
     class UserConsent: pass
@@ -19,6 +28,7 @@ except ImportError: # For standalone testing/mocking if needed
     class DataClassifier: pass
     class PolicyEvaluator: pass
     class ObfuscationEngine: pass
+    # DataTransformationAuditor already attempted above
 
 
 class PrivacyEnforcer:
@@ -27,7 +37,8 @@ class PrivacyEnforcer:
                  consent_manager: ConsentManager,
                  data_classifier: DataClassifier,
                  policy_evaluator: PolicyEvaluator,
-                 obfuscation_engine: ObfuscationEngine):
+                 obfuscation_engine: ObfuscationEngine,
+                 auditor: Optional['DataTransformationAuditor'] = None): # String literal hint
 
         if not isinstance(policy_store, PolicyStore):
             raise TypeError("policy_store must be an instance of PolicyStore.")
@@ -39,118 +50,120 @@ class PrivacyEnforcer:
             raise TypeError("policy_evaluator must be an instance of PolicyEvaluator.")
         if not isinstance(obfuscation_engine, ObfuscationEngine):
             raise TypeError("obfuscation_engine must be an instance of ObfuscationEngine.")
+        if auditor is not None and not isinstance(auditor, DataTransformationAuditor):
+            raise TypeError("auditor must be an instance of DataTransformationAuditor or None.")
 
         self.policy_store = policy_store
         self.consent_manager = consent_manager
         self.data_classifier = data_classifier
         self.policy_evaluator = policy_evaluator
         self.obfuscation_engine = obfuscation_engine
+        self.auditor = auditor
+
+    def _determine_transformation_details(self, raw_data: Dict[str, Any], processed_data: Dict[str, Any]) -> Dict[str, Any]:
+        details = {"fields_changed": [], "fields_raw": []}
+        all_keys = set(raw_data.keys()) | set(processed_data.keys())
+        for key in all_keys:
+            raw_value = raw_data.get(key)
+            processed_value = processed_data.get(key)
+            if raw_value != processed_value:
+                details["fields_changed"].append(key)
+            elif key in raw_data and key in processed_data : # Present in both and unchanged
+                details["fields_raw"].append(key)
+        return details
 
     def process_data_record(self,
                               user_id: str,
                               policy_id: str,
-                              policy_version: Optional[str], # Specify version or None for latest
+                              policy_version: Optional[str],
                               data_record: Dict[str, Any],
                               intended_purpose: Purpose,
                               intended_third_party: Optional[str] = None
                              ) -> Tuple[Dict[str, Any], str]:
-        """
-        Processes a data record according to the specified policy, user consent,
-        and intended purpose, applying obfuscation if necessary.
 
-        Args:
-            user_id: The ID of the user associated with the data.
-            policy_id: The ID of the governing privacy policy.
-            policy_version: The specific version of the policy to use (or None for latest).
-            data_record: The dictionary containing the raw data.
-            intended_purpose: The Purpose enum for which the data is being processed.
-            intended_third_party: Optional name of the third party if data is shared.
+        input_data_hash = self.auditor.hash_data(data_record) if self.auditor else "no_audit_input_hash"
+        processed_data = data_record
+        status = "Error_Processing_Failed"
+        consent_id_for_audit: Optional[str] = None
+        effective_policy_version_for_audit = str(policy_version) if policy_version else "latest"
 
-        Returns:
-            A tuple containing:
-                - The processed data record (possibly obfuscated).
-                - A status string (e.g., "Allowed_Raw", "Allowed_Transformed",
-                                   "Policy_Not_Found", "Consent_Not_Found_Or_Inactive").
-        """
 
-        # 1. Load Policy
         policy = self.policy_store.load_policy(policy_id, version=policy_version)
         if not policy:
-            return data_record, "Policy_Not_Found" # Return original data if policy missing
+            status = "Policy_Not_Found"
+            if self.auditor:
+                self.auditor.log_event(
+                    event_type="POLICY_ACCESS_FAILURE", user_id=user_id, policy_id=policy_id,
+                    policy_version=effective_policy_version_for_audit, consent_id=None,
+                    input_data_hash=input_data_hash, output_data_hash=input_data_hash,
+                    transformation_details={"error": "Policy not found at specified version or latest."}, status=status
+                )
+            return processed_data, status
 
-        # 2. Get Active Consent
-        # If no policy_version was specified for loading, use the version from the loaded (latest) policy
-        # for consent matching, assuming consent is tied to a specific policy version.
-        effective_policy_version = policy.version
+        effective_policy_version_for_audit = policy.version # Use actual loaded policy version for audit
+
         consent = self.consent_manager.get_active_consent(user_id, policy_id)
+        if consent:
+            consent_id_for_audit = consent.consent_id
 
-        # Further check if the active consent matches the effective policy version.
-        # This logic might need refinement based on how strictly consent is version-locked.
-        # For now, if an active consent exists for the policy_id, we use it, assuming
-        # the ConsentManager's get_active_consent handles version compatibility or returns the most relevant.
-        # A stricter check:
-        if consent and consent.policy_version != effective_policy_version:
-            # This case means active consent is for a *different version* of the same policy_id.
-            # Depending on rules, this might be invalid, or some mapping/migration logic could apply.
-            # For now, treat as if consent for *this specific version* is not found or is not the one active.
-             # print(f"Warning: Active consent version {consent.policy_version} does not match effective policy version {effective_policy_version}")
-             # To be strict, we might set consent to None here if versions must match exactly.
-             # For simplicity, if any active consent for policy_id is found, we proceed,
-             # but PolicyEvaluator will use the consent's own policy_version for its checks if needed.
-             # However, the PolicyEvaluator is given the loaded `policy` object.
-             pass # Current ConsentManager's get_active_consent doesn't filter by policy_version string, just policy_id.
+        # Strict consent version check: if consent's policy version doesn't match loaded policy version
+        if consent and consent.policy_version != policy.version:
+            # print(f"Warning: Active consent version {consent.policy_version} does not match effective policy version {policy.version}. Invalidating consent for this operation.")
+            consent = None # Invalidate consent for this operation due to version mismatch
 
-        if not consent or not consent.is_active: # is_active check is also in ConsentManager.get_active_consent
-            # If no active consent, the ObfuscationEngine will likely obfuscate everything
-            # by default as PolicyEvaluator will get consent=None.
-            # We can set a specific status here.
-            processed_data_no_consent = self.obfuscation_engine.process_data_for_operation(
-                raw_data=data_record,
-                policy=policy,
-                consent=None, # Explicitly pass None
-                proposed_purpose=intended_purpose,
-                data_classifier=self.data_classifier,
-                policy_evaluator=self.policy_evaluator,
-                proposed_third_party=intended_third_party
+        if not consent or not consent.is_active:
+            processed_data = self.obfuscation_engine.process_data_for_operation(
+                raw_data=data_record, policy=policy, consent=None,
+                proposed_purpose=intended_purpose, data_classifier=self.data_classifier,
+                policy_evaluator=self.policy_evaluator, proposed_third_party=intended_third_party
             )
-            # If all fields are identical, it means policy allowed raw without consent (e.g. legal obligation)
-            # This part of PolicyEvaluator is not yet fully implemented.
-            # For now, assume if no active consent, it's transformed/denied based on default obfuscation.
+            status_reason = "No_Active_Consent" if not consent else "Consent_Inactive_Or_Version_Mismatch"
+
             is_identical_no_consent = all(
-                processed_data_no_consent.get(k) == v for k, v in data_record.items()
-            ) and all(k in data_record for k in processed_data_no_consent)
+                processed_data.get(k) == v for k, v in data_record.items()
+            ) and all(k in data_record for k in processed_data)
 
             if is_identical_no_consent:
-                 return processed_data_no_consent, "Allowed_Raw_By_Policy_No_Active_Consent" # Or a more specific status
-            return processed_data_no_consent, "Transformed_Due_To_No_Active_Consent"
+                 status = f"Allowed_Raw_Fallback_{status_reason}" # Policy might allow raw on other basis
+            else:
+                status = f"Transformed_Fallback_{status_reason}"
 
+            if self.auditor:
+                output_data_hash = self.auditor.hash_data(processed_data)
+                transform_details = self._determine_transformation_details(data_record, processed_data)
+                self.auditor.log_event(
+                    event_type="CONSENT_VALIDATION_OUTCOME", user_id=user_id, policy_id=policy.policy_id,
+                    policy_version=policy.version, consent_id=consent_id_for_audit,
+                    input_data_hash=input_data_hash, output_data_hash=output_data_hash,
+                    transformation_details=transform_details, status=status
+                )
+            return processed_data, status
 
-        # 3. Process data using ObfuscationEngine (which uses Classifier and Evaluator)
+        # If active consent is present and matches policy version (implicitly or explicitly)
         processed_data = self.obfuscation_engine.process_data_for_operation(
-            raw_data=data_record,
-            policy=policy,
-            consent=consent,
-            proposed_purpose=intended_purpose,
-            data_classifier=self.data_classifier,
-            policy_evaluator=self.policy_evaluator,
-            proposed_third_party=intended_third_party
+            raw_data=data_record, policy=policy, consent=consent,
+            proposed_purpose=intended_purpose, data_classifier=self.data_classifier,
+            policy_evaluator=self.policy_evaluator, proposed_third_party=intended_third_party
         )
 
-        # 4. Determine overall status
-        # Compare processed_data with data_record to see if any obfuscation occurred.
-        # This is a simplified check. A more robust status could come from PolicyEvaluator
-        # or ObfuscationEngine indicating *why* transformations happened.
         is_identical = all(
             processed_data.get(k) == v for k, v in data_record.items()
-        ) and all(k in data_record for k in processed_data) # ensure same keys too
+        ) and all(k in data_record for k in processed_data)
 
         if is_identical:
-            status = "Allowed_Raw"
+            status = "Allowed_Raw_With_Consent"
         else:
-            status = "Allowed_Transformed"
-            # Future: Could refine status to "Partially_Allowed_Raw_Partially_Transformed"
-            # Or "Denied_Some_Fields_Transformed_Others" if some fields were completely blocked
-            # (current ObfuscationEngine doesn't block, only transforms or passes raw).
+            status = "Allowed_Transformed_With_Consent"
+
+        if self.auditor:
+            output_data_hash = self.auditor.hash_data(processed_data)
+            transform_details = self._determine_transformation_details(data_record, processed_data)
+            self.auditor.log_event(
+                event_type="DATA_PROCESSED_WITH_VALID_CONSENT", user_id=user_id, policy_id=policy.policy_id,
+                policy_version=policy.version, consent_id=consent.consent_id,
+                input_data_hash=input_data_hash, output_data_hash=output_data_hash,
+                transformation_details=transform_details, status=status
+            )
 
         return processed_data, status
 
@@ -167,6 +180,7 @@ if __name__ == '__main__':
     # from data_classifier import DataClassifier
     # from policy_evaluator import PolicyEvaluator
     # from obfuscation_engine import ObfuscationEngine
+    # from auditing.data_auditor import DataTransformationAuditor # Corrected import path
     #
     # ps = PolicyStore("./_temp_enforcer_policies")
     # cs = ConsentStore("./_temp_enforcer_consents")
@@ -174,7 +188,8 @@ if __name__ == '__main__':
     # dc = DataClassifier()
     # pe = PolicyEvaluator()
     # oe = ObfuscationEngine()
+    # da = DataTransformationAuditor("./_temp_enforcer_audit_logs")
     #
-    # enforcer = PrivacyEnforcer(ps, cm, dc, pe, oe)
+    # enforcer = PrivacyEnforcer(ps, cm, dc, pe, oe, da)
     # print(f"PrivacyEnforcer instance created: {enforcer}")
     pass

@@ -13,6 +13,14 @@ from privacy_protocol_core.consent_manager import ConsentManager
 from privacy_protocol_core.data_classifier import DataClassifier
 from privacy_protocol_core.policy_evaluator import PolicyEvaluator
 from privacy_protocol_core.obfuscation_engine import ObfuscationEngine
+# Import DataTransformationAuditor for spec and type hinting
+try:
+    from privacy_protocol_core.auditing.data_auditor import DataTransformationAuditor
+except ImportError: # Define dummy if not found, for robustness if tests run before auditor exists
+    class DataTransformationAuditor:
+        def log_event(self, *args, **kwargs): pass
+        @staticmethod
+        def hash_data(data): return "dummy_hash"
 
 
 class TestPrivacyEnforcer(unittest.TestCase):
@@ -24,13 +32,21 @@ class TestPrivacyEnforcer(unittest.TestCase):
         self.mock_data_classifier = MagicMock(spec=DataClassifier)
         self.mock_policy_evaluator = MagicMock(spec=PolicyEvaluator)
         self.mock_obfuscation_engine = MagicMock(spec=ObfuscationEngine)
+        self.mock_auditor = MagicMock(spec=DataTransformationAuditor)
+
+        # Mock the static method hash_data if it's called directly by enforcer (it is)
+        # If it's not part of the spec for MagicMock(spec=DataTransformationAuditor)
+        # For this test, ensure the mock_auditor instance has hash_data
+        self.mock_auditor.hash_data = MagicMock(return_value="mocked_hash_value")
+
 
         self.enforcer = PrivacyEnforcer(
             policy_store=self.mock_policy_store,
             consent_manager=self.mock_consent_manager,
             data_classifier=self.mock_data_classifier,
             policy_evaluator=self.mock_policy_evaluator,
-            obfuscation_engine=self.mock_obfuscation_engine
+            obfuscation_engine=self.mock_obfuscation_engine,
+            auditor=self.mock_auditor # Pass the mocked auditor
         )
 
         # Sample data for use in tests
@@ -56,6 +72,12 @@ class TestPrivacyEnforcer(unittest.TestCase):
         self.mock_policy_store.load_policy.assert_called_once_with(self.policy_id, version=self.policy_version)
         self.mock_consent_manager.get_active_consent.assert_not_called()
         self.mock_obfuscation_engine.process_data_for_operation.assert_not_called()
+        # Verify auditor was called for policy failure
+        self.mock_auditor.log_event.assert_called_once()
+        args, kwargs = self.mock_auditor.log_event.call_args
+        self.assertEqual(kwargs.get("event_type"), "POLICY_ACCESS_FAILURE")
+        self.assertEqual(kwargs.get("status"), "Policy_Not_Found")
+
 
     def test_process_data_no_active_consent(self):
         self.mock_policy_store.load_policy.return_value = self.sample_policy
@@ -69,7 +91,7 @@ class TestPrivacyEnforcer(unittest.TestCase):
             self.user_id, self.policy_id, self.policy_version, self.raw_data_record, self.intended_purpose
         )
 
-        self.assertEqual(status, "Transformed_Due_To_No_Active_Consent")
+        self.assertTrue(status.startswith("Transformed_Fallback_")) # Corrected status check
         self.assertEqual(processed_data, transformed_due_to_no_consent)
         self.mock_policy_store.load_policy.assert_called_once_with(self.policy_id, version=self.policy_version)
         self.mock_consent_manager.get_active_consent.assert_called_once_with(self.user_id, self.policy_id)
@@ -83,6 +105,12 @@ class TestPrivacyEnforcer(unittest.TestCase):
             policy_evaluator=self.mock_policy_evaluator,
             proposed_third_party=None
         )
+        # Verify auditor was called for consent failure
+        self.mock_auditor.log_event.assert_called_once()
+        args, kwargs = self.mock_auditor.log_event.call_args
+        self.assertEqual(kwargs.get("event_type"), "CONSENT_VALIDATION_OUTCOME")
+        self.assertTrue(kwargs.get("status").startswith("Transformed_Fallback_"), f"Actual status: {kwargs.get('status')}")
+
 
     def test_process_data_allowed_raw(self):
         self.mock_policy_store.load_policy.return_value = self.sample_policy
@@ -95,13 +123,18 @@ class TestPrivacyEnforcer(unittest.TestCase):
             self.user_id, self.policy_id, self.policy_version, self.raw_data_record, self.intended_purpose
         )
 
-        self.assertEqual(status, "Allowed_Raw")
+        self.assertEqual(status, "Allowed_Raw_With_Consent") # Corrected status
         self.assertEqual(processed_data, self.raw_data_record)
         self.mock_obfuscation_engine.process_data_for_operation.assert_called_once_with(
             raw_data=self.raw_data_record, policy=self.sample_policy, consent=self.sample_consent,
             proposed_purpose=self.intended_purpose, data_classifier=self.mock_data_classifier,
             policy_evaluator=self.mock_policy_evaluator, proposed_third_party=None
         )
+        # Verify auditor was called for successful raw processing
+        self.mock_auditor.log_event.assert_called_once()
+        args, kwargs = self.mock_auditor.log_event.call_args
+        self.assertEqual(kwargs.get("event_type"), "DATA_PROCESSED_WITH_VALID_CONSENT")
+        self.assertEqual(kwargs.get("status"), "Allowed_Raw_With_Consent") # Corrected expected audit status
 
     def test_process_data_allowed_transformed(self):
         self.mock_policy_store.load_policy.return_value = self.sample_policy
@@ -115,17 +148,23 @@ class TestPrivacyEnforcer(unittest.TestCase):
             self.user_id, self.policy_id, self.policy_version, self.raw_data_record, self.intended_purpose
         )
 
-        self.assertEqual(status, "Allowed_Transformed")
+        self.assertEqual(status, "Allowed_Transformed_With_Consent") # Corrected status
         self.assertEqual(processed_data, transformed_data)
         self.mock_obfuscation_engine.process_data_for_operation.assert_called_once_with(
             raw_data=self.raw_data_record, policy=self.sample_policy, consent=self.sample_consent,
             proposed_purpose=self.intended_purpose, data_classifier=self.mock_data_classifier,
             policy_evaluator=self.mock_policy_evaluator, proposed_third_party=None
         )
+        # Verify auditor was called for successful transformed processing
+        self.mock_auditor.log_event.assert_called_once()
+        args, kwargs = self.mock_auditor.log_event.call_args
+        self.assertEqual(kwargs.get("event_type"), "DATA_PROCESSED_WITH_VALID_CONSENT")
+        self.assertEqual(kwargs.get("status"), "Allowed_Transformed_With_Consent") # Corrected expected audit status
 
-    def test_process_data_consent_version_mismatch_warning_path(self):
+    def test_process_data_consent_version_mismatch_results_in_transformation_and_audit(self):
         # Scenario where active consent is for a different policy version than loaded policy
-        # This test primarily checks if the warning path in PrivacyEnforcer is exercised.
+        # This test primarily checks if the warning path in PrivacyEnforcer is exercised,
+        # leading to consent being treated as None, and data transformed.
         # The actual behavior (strict denial vs. proceeding) depends on refined logic.
         # Current enforcer proceeds but a warning would be printed if prints were on.
 
@@ -145,10 +184,21 @@ class TestPrivacyEnforcer(unittest.TestCase):
             self.user_id, self.policy_id, "2.0", self.raw_data_record, self.intended_purpose
         )
 
-        self.assertEqual(status, "Allowed_Transformed") # Or whatever status results
-        self.mock_obfuscation_engine.process_data_for_operation.assert_called_once()
-        # We can't easily assert a print warning here without capturing stdout,
-        # but we've tested the path where consent.policy_version != effective_policy_version.
+        # Expect data to be transformed as consent is invalidated due to version mismatch
+        self.assertTrue(status.startswith("Transformed_Fallback_"))
+        self.assertEqual(processed_data, transformed_data)
+
+        # Verify ObfuscationEngine was called with consent=None
+        call_args = self.mock_obfuscation_engine.process_data_for_operation.call_args
+        self.assertIsNone(call_args[1].get('consent')) # Check kwargs for consent=None
+
+        # Verify auditor was called for consent validation failure
+        self.mock_auditor.log_event.assert_called_once()
+        args, audit_kwargs = self.mock_auditor.log_event.call_args
+        self.assertEqual(audit_kwargs.get("event_type"), "CONSENT_VALIDATION_OUTCOME")
+        # When consent version mismatches, enforcer sets consent to None, leading to "No_Active_Consent" path.
+        self.assertEqual(audit_kwargs.get("status"), "Transformed_Fallback_No_Active_Consent", f"Actual status: {audit_kwargs.get('status')}")
+
 
     def test_type_errors_in_constructor(self):
         with self.assertRaisesRegex(TypeError, "policy_store must be an instance of PolicyStore"):
