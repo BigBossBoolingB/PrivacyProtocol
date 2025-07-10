@@ -15,6 +15,8 @@ try:
     from privacy_profile_manager import PrivacyProfileManager, PrivacyProfile
     from privacy_framework.consent_manager import ConsentManager
     from privacy_framework.policy_evaluator import PolicyEvaluator
+    from privacy_framework.data_classifier import DataClassifier
+    from privacy_framework.obfuscation_engine import ObfuscationEngine, ObfuscationMethod
 except ImportError:
     print("ImportError: Make sure you are running this script from the project root,")
     print("or that the 'src' directory is in your PYTHONPATH.")
@@ -50,214 +52,163 @@ def run_demonstration():
     profile_manager = PrivacyProfileManager(storage_path=PROFILE_STORAGE_PATH)
     consent_manager = ConsentManager()
     policy_evaluator = PolicyEvaluator()
+    data_classifier = DataClassifier()
+    obfuscation_engine = ObfuscationEngine()
     print("Components initialized.\n")
 
-    # --- 2. Define & "Interpret" a Sample Privacy Policy ---
-    print("--- 2. Defining & Interpreting a Sample Privacy Policy ---")
-    sample_policy_text = """
-    Our service collects your Personal Information like name and email for Service Delivery and Marketing.
-    We also track Usage Data and Device Information (like IP address) for Analytics and to improve our services.
-    We may share Usage Data with trusted analytics partners. Data is kept for 1 year.
-    By using our service, you agree to this.
-    """
-    print(f"Sample Policy Text:\n{sample_policy_text[:150]}...\n")
-
-    # Conceptual interpretation (V1 interpreter is basic)
-    # In a full system, interpreter would output a structured PrivacyPolicy object.
-    # Here, we use its V1 extraction and then manually construct the policy object for the demo.
-    interpreted_keywords = interpreter.interpret_policy(sample_policy_text)
-    print(f"Interpreter (V1) extracted keywords (example):")
-    print(f"  Data Categories detected: {[dc.name for dc in interpreted_keywords.get('data_categories', [])]}")
-    print(f"  Purposes detected: {[p.name for p in interpreted_keywords.get('purposes', [])]}\n")
-
-    # Manually construct the PrivacyPolicy object based on the text for this demo
+    # --- 2. Define a Sample Privacy Policy ---
+    print("--- 2. Defining a Sample Privacy Policy ---")
     demo_policy = PrivacyPolicy(
-        policy_id="demo_policy_001",
+        policy_id="demo_policy_002",
         version=1,
         data_categories=[
-            DataCategory.PERSONAL_INFO, DataCategory.USAGE_DATA, DataCategory.DEVICE_INFO
+            DataCategory.PERSONAL_INFO, DataCategory.USAGE_DATA,
+            DataCategory.DEVICE_INFO, DataCategory.LOCATION_DATA
         ],
         purposes=[
-            Purpose.SERVICE_DELIVERY, Purpose.MARKETING, Purpose.ANALYTICS, Purpose.IMPROVEMENT
+            Purpose.SERVICE_DELIVERY, Purpose.MARKETING,
+            Purpose.ANALYTICS, Purpose.IMPROVEMENT, Purpose.SECURITY
         ],
         retention_period="1 year",
-        third_parties_shared_with=["trusted_analytics_partner_co"], # From policy text
-        legal_basis=LegalBasis.CONSENT, # "By using our service, you agree" implies consent basis
-        text_summary="Service collects PI, Usage, Device data for SD, Marketing, Analytics, Improvement. Shares with analytics partners."
+        third_parties_shared_with=["trusted_analytics_partner.com", "advertising_network.com"],
+        legal_basis=LegalBasis.CONSENT,
+        text_summary="Demo policy covering common data uses."
     )
-    print(f"Manually constructed PrivacyPolicy object (ID: {demo_policy.policy_id}) based on interpretation.\n")
+    print(f"Defined PrivacyPolicy object (ID: {demo_policy.policy_id}).\n")
 
-    # --- 3. Create a User Privacy Profile ---
-    print("--- 3. Creating a User Privacy Profile ---")
-    profile_id = "user_default_profile"
-    profile_name = "User's Default Settings"
-    try:
-        user_profile = profile_manager.create_profile(
-            user_id=USER_ID,
-            profile_id=profile_id,
-            profile_name=profile_name,
-            permitted_data_categories=[DataCategory.PERSONAL_INFO, DataCategory.USAGE_DATA],
-            permitted_purposes=[Purpose.SERVICE_DELIVERY, Purpose.ANALYTICS], # User is okay with SD and Analytics
-            trusted_third_parties=["trusted_analytics_partner_co"], # User trusts this partner
-            strictness_level=7
-        )
-        print(f"Created profile: '{user_profile.profile_name}' (ID: {user_profile.profile_id})")
-        print(f"  Permitted Categories by profile: {[dc.name for dc in user_profile.permitted_data_categories]}")
-        print(f"  Permitted Purposes by profile: {[p.name for p in user_profile.permitted_purposes]}\n")
-    except ValueError as e:
-        print(f"Error creating profile (already exists?): {e}")
-        user_profile = profile_manager.load_profile(profile_id) # Try to load if it was from a partial previous run
-        if not user_profile:
-            print("Could not load existing profile. Demo might not work as expected.")
-            return
-
-
-    # --- 4. Grant User Consent (Derived from Profile or Explicit) ---
-    print("--- 4. Granting User Consent for the Demo Policy ---")
-    # For this demo, let's create a UserConsent object based on the user's profile
-    # and the specific policy they are interacting with.
-    # A real UI would present the policy and allow user to tweak choices from their profile.
-
-    # User reviews `demo_policy` and decides.
-    # Let's say user accepts categories/purposes from their profile that are ALSO in the policy.
-    consented_categories = [
-        cat for cat in user_profile.permitted_data_categories
-        if cat in demo_policy.data_categories
-    ]
-    consented_purposes = [
-        purp for purp in user_profile.permitted_purposes
-        if purp in demo_policy.purposes
-    ]
-    # User explicitly DENIES marketing for this specific policy, even if profile might be more lenient elsewhere.
-    if Purpose.MARKETING in consented_purposes: # Example of specific override
-        consented_purposes.remove(Purpose.MARKETING)
-
-    consented_third_parties = [
-        tp for tp in user_profile.trusted_third_parties
-        if tp in demo_policy.third_parties_shared_with
-    ]
-
+    # --- 3. Simulate User Granting Consent ---
+    print("--- 3. Simulating User Granting Consent ---")
+    # User wants Service Delivery & Analytics, but NOT Marketing for their Personal Info.
+    # They are okay with sharing Usage/Device data with trusted_analytics_partner.com for Analytics.
     user_consent_for_demo_policy = UserConsent(
         consent_id=f"consent_{USER_ID}_{demo_policy.policy_id}_{int(time.time())}",
         user_id=USER_ID,
         policy_id=demo_policy.policy_id,
         version=demo_policy.version,
-        data_categories_consented=consented_categories,
-        purposes_consented=consented_purposes,
-        third_parties_consented=consented_third_parties,
+        data_categories_consented=[
+            DataCategory.PERSONAL_INFO, # For Service Delivery
+            DataCategory.USAGE_DATA,    # For Analytics
+            DataCategory.DEVICE_INFO    # For Analytics & Security
+        ],
+        purposes_consented=[
+            Purpose.SERVICE_DELIVERY, # For PI, Usage, Device
+            Purpose.ANALYTICS,        # For Usage, Device
+            Purpose.SECURITY          # For Device
+        ],
+        third_parties_consented=["trusted_analytics_partner.com"], # Only this partner
         is_active=True
     )
     consent_manager.store_consent(user_consent_for_demo_policy)
-    print(f"UserConsent (ID: {user_consent_for_demo_policy.consent_id}) created and stored:")
+    print(f"UserConsent (ID: {user_consent_for_demo_policy.consent_id}) created and stored.")
     print(f"  Consented Categories: {[dc.name for dc in user_consent_for_demo_policy.data_categories_consented]}")
     print(f"  Consented Purposes: {[p.name for p in user_consent_for_demo_policy.purposes_consented]}")
     print(f"  Consented Third Parties: {user_consent_for_demo_policy.third_parties_consented}\n")
 
-    # --- 5. Evaluate Hypothetical Data Operations ---
-    print("--- 5. Evaluating Hypothetical Data Operations ---")
+    active_consent = consent_manager.get_active_consent(USER_ID, demo_policy.policy_id)
+    if not active_consent:
+        print("ERROR: Could not retrieve active consent. Demo cannot continue accurately.")
+        return
 
-    # Define some data attributes for operations
-    email_attribute = DataAttribute("email", DataCategory.PERSONAL_INFO, SensitivityLevel.CRITICAL, is_pii=True)
-    ip_address_attribute = DataAttribute("ip_address", DataCategory.DEVICE_INFO, SensitivityLevel.MEDIUM)
-    browsing_history_attribute = DataAttribute("browsing_history", DataCategory.USAGE_DATA, SensitivityLevel.HIGH)
+    # --- 4. Sample Raw Data & Classification ---
+    print("--- 4. Sample Raw Data & Classification ---")
+    sample_raw_data = {
+        "full_name": "Jane Doe",
+        "email_address": "jane.doe@example.com",
+        "primary_phone": "555-012-3456",
+        "last_login_ip": "203.0.113.45",
+        "last_purchase_category": "electronics",
+        "user_agent_string": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ...",
+        "current_city": "New York"
+    }
+    print(f"Sample Raw Data:\n{json.dumps(sample_raw_data, indent=2)}\n")
 
-    operations_to_test = [
+    classified_attributes = data_classifier.classify_data(sample_raw_data)
+    print("Classified Data Attributes:")
+    attr_map_for_demo = {}
+    for attr in classified_attributes:
+        print(f"  - {attr.attribute_name}: Category={attr.category.name}, Sensitivity={attr.sensitivity_level.name}, PII={attr.is_pii}, ObfPref={attr.obfuscation_method_preferred.name}")
+        attr_map_for_demo[attr.attribute_name] = attr
+    print("")
+
+    # --- 5. End-to-End Data Operation Evaluation & Obfuscation ---
+    print("--- 5. End-to-End Data Operation Evaluation & Obfuscation ---")
+
+    scenarios = [
         {
-            "description": "Send a welcome email (Service Delivery using Personal Info)",
-            "attributes": [email_attribute],
+            "name": "Display User Profile (Service Delivery)",
             "purpose": Purpose.SERVICE_DELIVERY,
             "third_party": None,
-            "expected": True # Profile allows PI for SD, Policy allows PI for SD
+            "data_to_process": {"full_name": sample_raw_data["full_name"], "email_address": sample_raw_data["email_address"]}
         },
         {
-            "description": "Use email for Marketing purposes",
-            "attributes": [email_attribute],
+            "name": "Send Marketing Email (Marketing)",
             "purpose": Purpose.MARKETING,
             "third_party": None,
-            "expected": False # User explicitly denied MARKETING for this policy in step 4
+            "data_to_process": {"email_address": sample_raw_data["email_address"]}
         },
         {
-            "description": "Collect IP address for Analytics",
-            "attributes": [ip_address_attribute],
-            "purpose": Purpose.ANALYTICS,
+            "name": "Internal Security Logging (Security)",
+            "purpose": Purpose.SECURITY,
             "third_party": None,
-            "expected": True # Profile allows USAGE/DEVICE for Analytics, Policy allows DEVICE for Analytics
-                            # Note: User profile had USAGE_DATA for ANALYTICS, consent has USAGE_DATA.
-                            # Policy has DEVICE_INFO for ANALYTICS.
-                            # Consent has USAGE_DATA. IP address is DEVICE_INFO.
-                            # This will depend on whether user_consent_for_demo_policy included DEVICE_INFO
-                            # Based on current logic: consented_categories = [PERSONAL_INFO, USAGE_DATA]
-                            # So this should be FALSE as DEVICE_INFO not in consented_categories.
-                            # Let's adjust expected for this:
-                            # Expected: False
+            "data_to_process": {"last_login_ip": sample_raw_data["last_login_ip"]}
         },
         {
-            "description": "Share browsing history with 'trusted_analytics_partner_co' for Analytics",
-            "attributes": [browsing_history_attribute], # USAGE_DATA
+            "name": "Share Usage Data with Analytics Partner (Analytics)",
             "purpose": Purpose.ANALYTICS,
-            "third_party": "trusted_analytics_partner_co",
-            "expected": True # Profile allows USAGE for Analytics & trusts partner. Policy allows USAGE for Analytics & lists partner.
+            "third_party": "trusted_analytics_partner.com",
+            "data_to_process": {"last_purchase_category": sample_raw_data["last_purchase_category"], "user_agent_string": sample_raw_data["user_agent_string"], "current_city": sample_raw_data["current_city"]}
         },
         {
-            "description": "Share email with 'unknown_partner.com' for Marketing",
-            "attributes": [email_attribute],
+            "name": "Share Data with Unapproved Ad Network (Marketing)",
             "purpose": Purpose.MARKETING,
-            "third_party": "unknown_partner.com",
-            "expected": False # Marketing denied by consent, and partner unknown/not consented.
-        },
-        {
-            "description": "Use IP address for Research (purpose not in policy)",
-            "attributes": [ip_address_attribute],
-            "purpose": Purpose.RESEARCH,
-            "third_party": None,
-            "expected": False # RESEARCH not in demo_policy.purposes
+            "third_party": "advertising_network.com", # Policy allows, but consent might not
+            "data_to_process": {"email_address": sample_raw_data["email_address"], "current_city": sample_raw_data["current_city"]}
         }
     ]
 
-    # Adjusting expectation for operation 3 based on current consent derivation:
-    # User profile has: permitted_data_categories=[DataCategory.PERSONAL_INFO, DataCategory.USAGE_DATA]
-    # Demo policy has: data_categories=[DataCategory.PERSONAL_INFO, DataCategory.USAGE_DATA, DataCategory.DEVICE_INFO]
-    # Consented categories becomes intersection: [DataCategory.PERSONAL_INFO, DataCategory.USAGE_DATA]
-    # IP address is DEVICE_INFO. So it's not in consented_categories.
-    operations_to_test[2]["expected"] = False # "Collect IP address for Analytics"
+    for scenario_index, scenario in enumerate(scenarios):
+        print(f"\n--- Scenario {scenario_index + 1}: {scenario['name']} ---")
+        print(f"  Proposed Purpose: {scenario['purpose'].name}")
+        if scenario['third_party']:
+            print(f"  Proposed Third Party: {scenario['third_party']}")
+        print(f"  Data involved (original): {scenario['data_to_process']}")
 
-    active_consent = consent_manager.get_active_consent(USER_ID, demo_policy.policy_id)
-    if not active_consent:
-        print("ERROR: Could not retrieve active consent for evaluation. Demo cannot continue accurately.")
-        return
+        # For each field in this scenario's data_to_process, we need its classification
+        scenario_attributes = []
+        for key in scenario['data_to_process'].keys():
+            if key in attr_map_for_demo: # Use the globally classified attribute for this key
+                scenario_attributes.append(attr_map_for_demo[key])
+            else: # Should not happen if data_to_process keys are from sample_raw_data
+                print(f"Warning: Key '{key}' not found in initial classification for scenario.")
+                # Create a default 'OTHER' attribute if missing
+                scenario_attributes.append(DataAttribute(key, DataCategory.OTHER, SensitivityLevel.LOW))
 
-    for op in operations_to_test:
-        print(f"\nEvaluating: {op['description']}")
-        is_permitted = policy_evaluator.is_operation_permitted(
+
+        processed_scenario_data = obfuscation_engine.process_data_attributes(
+            raw_data=scenario['data_to_process'],
+            classified_attributes=scenario_attributes, # Pass only relevant attributes
             policy=demo_policy,
-            consent=active_consent, # Use the specific consent granted for this policy
-            data_attributes_involved=op["attributes"],
-            proposed_purpose=op["purpose"],
-            proposed_third_party=op["third_party"]
+            consent=active_consent,
+            proposed_purpose=scenario['purpose'],
+            policy_evaluator=policy_evaluator,
+            proposed_third_party=scenario['third_party']
         )
-        result_str = "Permitted" if is_permitted else "Denied"
-        expected_str = "Permitted" if op["expected"] else "Denied"
-        status = "PASS" if is_permitted == op["expected"] else "FAIL"
+        print(f"  Processed Data: {json.dumps(processed_scenario_data, indent=2)}")
 
-        print(f"  Outcome: {result_str} (Expected: {expected_str}) - {status}")
-        if not is_permitted:
-             # Basic explanation (could be more detailed by inspecting evaluator's internal logic if exposed)
-            if op["purpose"] not in demo_policy.purposes:
-                print(f"  Reason hint: Purpose '{op['purpose'].name}' not allowed by policy.")
-            elif active_consent:
-                if op["purpose"] not in active_consent.purposes_consented:
-                     print(f"  Reason hint: Purpose '{op['purpose'].name}' not in user's consent for this policy.")
-                for attr in op["attributes"]:
-                    if attr.category not in active_consent.data_categories_consented:
-                        print(f"  Reason hint: Data category '{attr.category.name}' for attribute '{attr.attribute_name}' not in user's consent.")
-                        break
-                if op["third_party"] and (not active_consent.third_parties_consented or op["third_party"] not in active_consent.third_parties_consented) :
-                     print(f"  Reason hint: Third party '{op['third_party']}' not in user's consent list for this policy.")
+        # Add a small explanation of why fields might be obfuscated
+        for key, val in processed_scenario_data.items():
+            original_val = scenario['data_to_process'].get(key)
+            if val != original_val:
+                attr_for_key = next((a for a in scenario_attributes if a.attribute_name == key), None)
+                if attr_for_key:
+                     is_perm = policy_evaluator.is_operation_permitted(demo_policy, active_consent, [attr_for_key], scenario['purpose'], scenario['third_party'])
+                     print(f"    - Field '{key}': Original='{original_val}', Processed='{val}'. Permission: {'Granted' if is_perm else 'Denied -> Obfuscated'}")
+                else:
+                     print(f"    - Field '{key}': Original='{original_val}', Processed='{val}'. (Attribute details not found for explanation)")
 
 
     print("\n--- 6. Demonstration Complete ---")
-    print(f"User profiles for this demo are stored in: {os.path.abspath(PROFILE_STORAGE_PATH)}")
-    print("You can delete this directory if you wish.")
+    print(f"User profiles for this demo are stored in: {os.path.abspath(PROFILE_STORAGE_PATH)}") # Profile storage not used in this version of demo
     print("=======================================\n")
 
 if __name__ == "__main__":
