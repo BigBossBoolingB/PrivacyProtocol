@@ -1,0 +1,76 @@
+# src/privacy_framework/consent.py
+"""
+Defines the UserConsent data structure for the Privacy Protocol.
+"""
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import List, Dict, Any, Optional
+import json
+import time
+
+# Re-import Enums from policy.py for consistency and clarity
+from .policy import DataCategory, Purpose # Assuming policy.py is in the same package
+
+# --- UserConsent Data Structure ---
+
+@dataclass
+class UserConsent:
+    """
+    Represents a user's explicit consent choices for a specific privacy policy.
+    """
+    consent_id: str                         # Unique identifier for this consent record
+    user_id: str                            # ID of the user granting consent (e.g., DigiSocialBlock DID)
+    policy_id: str                          # ID of the PrivacyPolicy this consent applies to
+    version: int                            # Version of the policy this consent applies to
+    data_categories_consented: List[DataCategory] # Data categories the user has consented to
+    purposes_consented: List[Purpose]       # Purposes the user has consented to
+    third_parties_consented: List[str]      # Third parties the user has consented to share with
+    timestamp: int = field(default_factory=lambda: int(time.time())) # When consent was granted/updated
+    is_active: bool = True                  # Whether this consent record is currently active
+    signature: Optional[str] = None         # Cryptographic signature for verifiable consent (placeholder for now)
+
+    # Optional: More granular controls
+    obfuscation_preferences: Dict[str, str] = field(default_factory=dict) # e.g., {"email": "hash", "location": "redact"}
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Converts the UserConsent object to a dictionary for serialization."""
+        return {
+            "consent_id": self.consent_id,
+            "user_id": self.user_id,
+            "policy_id": self.policy_id,
+            "version": self.version,
+            "data_categories_consented": [cat.value for cat in self.data_categories_consented],
+            "purposes_consented": [purp.value for purp in self.purposes_consented],
+            "third_parties_consented": self.third_parties_consented,
+            "timestamp": self.timestamp,
+            "is_active": self.is_active,
+            "signature": self.signature,
+            "obfuscation_preferences": self.obfuscation_preferences
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "UserConsent":
+        """Creates a UserConsent object from a dictionary."""
+        return cls(
+            consent_id=data["consent_id"],
+            user_id=data["user_id"],
+            policy_id=data["policy_id"],
+            version=data["version"],
+            data_categories_consented=[DataCategory(cat) for cat in data["data_categories_consented"]],
+            purposes_consented=[Purpose(purp) for purp in data["purposes_consented"]],
+            third_parties_consented=data["third_parties_consented"],
+            timestamp=data.get("timestamp", int(time.time())),
+            is_active=data.get("is_active", True),
+            signature=data.get("signature"),
+            obfuscation_preferences=data.get("obfuscation_preferences", {})
+        )
+
+    def to_json(self) -> str:
+        """Converts the UserConsent object to a JSON string."""
+        return json.dumps(self.to_dict(), indent=2)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "UserConsent":
+        """Creates a UserConsent object from a JSON string."""
+        return cls.from_dict(json.loads(json_str))
