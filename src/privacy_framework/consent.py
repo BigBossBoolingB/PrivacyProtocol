@@ -25,7 +25,7 @@ class UserConsent:
     version: int                            # Version of the policy this consent applies to
     data_categories_consented: List[DataCategory] # Data categories the user has consented to
     purposes_consented: List[Purpose]       # Purposes the user has consented to
-    third_parties_consented: List[str]      # Third parties the user has consented to share with
+    third_parties_consented: List[str] = field(default_factory=list)      # Third parties the user has consented to share with
     timestamp: int = field(default_factory=lambda: int(time.time())) # When consent was granted/updated
     is_active: bool = True                  # Whether this consent record is currently active
     signature: Optional[str] = None         # Cryptographic signature for verifiable consent (placeholder for now)
