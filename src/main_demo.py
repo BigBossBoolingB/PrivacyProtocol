@@ -17,8 +17,10 @@ try:
     from privacy_framework.policy_evaluator import PolicyEvaluator
     from privacy_framework.data_classifier import DataClassifier
     from privacy_framework.obfuscation_engine import ObfuscationEngine
-    from privacy_framework.privacy_enforcer import PrivacyEnforcer, PrivacyStatus # Added
-    from demo_helpers.mock_data_generator import MockDataGenerator # Added
+    from privacy_framework.privacy_enforcer import PrivacyEnforcer, PrivacyStatus
+    from demo_helpers.mock_data_generator import MockDataGenerator
+    from privacy_framework.policy_verifier import PolicyVerifier # Added
+    from privacy_framework.data_auditor import DataTransformationAuditor # Added
 except ImportError:
     print("ImportError: Make sure you are running this script from the project root,")
     print("or that the 'src' directory is in your PYTHONPATH.")
@@ -37,6 +39,7 @@ def run_demonstration():
     # PROFILE_STORAGE_PATH = "user_profiles_demo/" # Not used in this version of demo
     POLICY_STORAGE_PATH = "_app_data_main_demo/policies/"
     CONSENT_STORAGE_PATH = "_app_data_main_demo/consents/"
+    AUDIT_LOG_FILEPATH = "_app_data_main_demo/audit/main_demo_audit.jsonl"
 
     # Clean up storage from previous demo runs for consistency
     if os.path.exists("_app_data_main_demo/"):
@@ -64,16 +67,20 @@ def run_demonstration():
     obfuscation_engine = ObfuscationEngine()
     # Initialize new components for this demo
     mock_data_generator = MockDataGenerator(user_ids=[USER_ID]) # Generate data for our demo user
+    auditor = DataTransformationAuditor(audit_log_filepath=AUDIT_LOG_FILEPATH)
+    policy_verifier = PolicyVerifier()
+
     privacy_enforcer = PrivacyEnforcer(
         data_classifier=data_classifier,
         policy_evaluator=policy_evaluator,
         obfuscation_engine=obfuscation_engine,
         consent_manager=consent_manager,
-        policy_store=policy_store
+        policy_store=policy_store,
+        auditor=auditor # Inject auditor
     )
     print("Components initialized.\n")
 
-    # --- 2. Define & Save a Sample Privacy Policy using PolicyStore ---
+    # --- 2. Define, Verify (Conceptually), & Save a Sample Privacy Policy ---
     print("--- 2. Defining & Saving a Sample Privacy Policy ---")
     demo_policy_obj = PrivacyPolicy( # Renamed to avoid conflict later
         policy_id="main_demo_policy_001",
@@ -92,9 +99,15 @@ def run_demonstration():
         text_summary="Demo policy for main_demo.py, covering common data uses."
     )
     if policy_store.save_policy(demo_policy_obj):
-        print(f"Saved PrivacyPolicy (ID: {demo_policy_obj.policy_id} v{demo_policy_obj.version}) to PolicyStore.\n")
+        print(f"Saved PrivacyPolicy (ID: {demo_policy_obj.policy_id} v{demo_policy_obj.version}) to PolicyStore.")
     else:
-        print(f"ERROR: Failed to save policy {demo_policy_obj.policy_id} to store. Demo might not reflect persistence.\n")
+        print(f"ERROR: Failed to save policy {demo_policy_obj.policy_id} to store. Demo might not reflect persistence.")
+
+    # Conceptual Policy Verification
+    prop1_holds = policy_verifier.verify_policy_property(demo_policy_obj, "user_can_opt_out_marketing")
+    print(f"Conceptual verification 'user_can_opt_out_marketing': {prop1_holds}")
+    prop2_holds = policy_verifier.verify_policy_property(demo_policy_obj, "data_retention_respected")
+    print(f"Conceptual verification 'data_retention_respected': {prop2_holds}\n")
 
 
     # --- 3. Simulate User Granting Consent (Saved via ConsentManager/ConsentStore) ---
@@ -114,7 +127,16 @@ def run_demonstration():
     if consent_manager.grant_consent(user_consent_obj): # Uses ConsentStore
         print(f"UserConsent (ID: {user_consent_obj.consent_id}) created and stored via ConsentManager.")
         print(f"  Consented Categories: {[dc.name for dc in user_consent_obj.data_categories_consented]}")
-        print(f"  Consented Purposes: {[p.name for p in user_consent_obj.purposes_consented]}\n")
+        print(f"  Consented Purposes: {[p.name for p in user_consent_obj.purposes_consented]}")
+        print(f"  Consented Third Parties: {user_consent_obj.third_parties_consented}")
+
+        # Conceptual "signing" of consent
+        signed_consent = consent_manager.sign_consent(user_id=USER_ID, consent_id=user_consent_obj.consent_id)
+        if signed_consent and signed_consent.signature:
+            print(f"  Consent conceptually signed. Signature: {signed_consent.signature}")
+            print(f"  (This signature could be anchored to a Consent Chain for immutability - e.g., DigiSocialBlock/EmPower1).\n")
+        else:
+            print("  Failed to conceptually sign consent.\n")
     else:
         print(f"ERROR: Failed to save consent {user_consent_obj.consent_id}. Demo might not reflect persistence.\n")
 
@@ -194,7 +216,27 @@ def run_demonstration():
     # print(f"User profiles for this demo are stored in: {os.path.abspath(PROFILE_STORAGE_PATH)}") # Profile storage not used in this version of demo
     print(f"Policy data for this demo is in: {os.path.abspath(POLICY_STORAGE_PATH)}")
     print(f"Consent data for this demo is in: {os.path.abspath(CONSENT_STORAGE_PATH)}")
-    print("You can delete the '_app_data_main_demo/' directory if you wish.")
+    print(f"Audit log for this demo is in: {os.path.abspath(AUDIT_LOG_FILEPATH)}")
+
+    print("\n--- Conceptual Audit Log Review ---")
+    if os.path.exists(AUDIT_LOG_FILEPATH):
+        print(f"Last few entries from '{AUDIT_LOG_FILEPATH}':")
+        try:
+            with open(AUDIT_LOG_FILEPATH, 'r') as f:
+                lines = f.readlines()
+                for line in lines[-5:]: # Print last 5 log entries as an example
+                    print(f"  {line.strip()}")
+            print("Each log entry contains a 'previous_log_hash' and 'current_entry_hash', creating a tamper-evident chain.")
+            print("These logs could be periodically anchored to a blockchain (e.g., EmPower1) for enhanced immutability and verifiability.")
+        except Exception as e:
+            print(f"  Could not read audit log: {e}")
+    else:
+        print("Audit log file was not created (this might indicate an issue or no auditable events occurred).")
+
+    print("\nNote: The 'Privacy Policy Verifier' provided conceptual checks. Real formal verification requires specialized tools and models.")
+    print("The 'Consent Signing' is also conceptual, awaiting integration with a digital identity and signature system like DigiSocialBlock.")
+
+    print("\nYou can delete the '_app_data_main_demo/' directory if you wish.")
     print("=======================================\n")
 
 if __name__ == "__main__":

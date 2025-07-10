@@ -48,12 +48,14 @@ class PrivacyEnforcer:
                  policy_evaluator: PolicyEvaluator,
                  obfuscation_engine: ObfuscationEngine,
                  consent_manager: ConsentManager,
-                 policy_store: PolicyStore):
+                 policy_store: PolicyStore,
+                 auditor: Optional['DataTransformationAuditor'] = None): # Added auditor
         self.data_classifier = data_classifier
         self.policy_evaluator = policy_evaluator
         self.obfuscation_engine = obfuscation_engine
         self.consent_manager = consent_manager
         self.policy_store = policy_store
+        self.auditor = auditor # Added auditor
 
     def process_data_record(self,
                               user_id: str,
@@ -87,6 +89,37 @@ class PrivacyEnforcer:
                 ),
                 "message": f"Policy {policy_id} v{policy_version or 'latest'} not found. Data obfuscated by default."
             }
+        if not policy:
+            # This is the DENIED_NO_POLICY case.
+            # The original return block already does what's needed for processed_data.
+            # We just need to add the audit log before returning.
+            classified_attributes_for_fallback = self.data_classifier.classify_data(data_record)
+            fallback_obfuscated_data = self.obfuscation_engine.process_data_attributes(
+                data_record,
+                classified_attributes_for_fallback,
+                PrivacyPolicy(policy_id="fallback_deny", version=0, data_categories=[], purposes=[], legal_basis=LegalBasis.NOT_APPLICABLE, text_summary="Fallback", retention_period="0", third_parties_shared_with=[]),
+                None,
+                intended_purpose,
+                self.policy_evaluator,
+                intended_third_party
+            )
+            if self.auditor:
+                self.auditor.log_event(
+                    event_type=PrivacyStatus.DENIED_NO_POLICY.name,
+                    details={
+                        "user_id": user_id, "policy_id": policy_id, "policy_version": policy_version,
+                        "intended_purpose": intended_purpose.name, "intended_third_party": intended_third_party,
+                        "reason": f"Policy {policy_id} v{policy_version or 'latest'} not found."
+                    },
+                    original_data=data_record,
+                    processed_data=fallback_obfuscated_data,
+                    policy_id=policy_id
+                )
+            return {
+                "status": PrivacyStatus.DENIED_NO_POLICY,
+                "processed_data": fallback_obfuscated_data,
+                "message": f"Policy {policy_id} v{policy_version or 'latest'} not found. Data obfuscated by default."
+            }
 
         # 2. Load UserConsent for the user and policy
         # ConsentManager's get_active_consent should ideally check policy version match too.
@@ -109,15 +142,41 @@ class PrivacyEnforcer:
                 else: # Should not happen if classifier works on data_record keys
                     obfuscated_data[attr.attribute_name] = "[CLASSIFICATION_KEY_MISMATCH]"
 
-
+            if self.auditor:
+                self.auditor.log_event(
+                    event_type=PrivacyStatus.DENIED_NO_CONSENT.name,
+                    details={
+                        "user_id": user_id, "policy_id": policy_id, "policy_version": policy_version,
+                        "intended_purpose": intended_purpose.name, "intended_third_party": intended_third_party,
+                        "reason": "Consent required by policy but no active consent found."
+                    },
+                    original_data=data_record,
+                    processed_data=obfuscated_data,
+                    policy_id=policy_id,
+                    consent_id=None
+                )
             return {
                 "status": PrivacyStatus.DENIED_NO_CONSENT,
                 "processed_data": obfuscated_data,
-                "message": f"Active consent required for policy {policy_id} but not found for user {user_id}. Data obfuscated."
+                "message": f"Active consent required for policy {policy_id} but not found for user {user_id}. Data obfuscated according to attribute preferences." # Updated message
             }
 
         # 3. Classify the incoming data_record
         classified_attributes: List[DataAttribute] = self.data_classifier.classify_data(data_record)
+        if self.auditor:
+            # Log data classification event
+            self.auditor.log_event(
+                event_type="DATA_CLASSIFICATION_ATTEMPTED", # More generic than "SUCCESSFUL" as it's just an attempt
+                details={
+                    "user_id": user_id, "policy_id": policy_id, "num_fields_in_record": len(data_record),
+                    "num_attributes_classified": len(classified_attributes),
+                    # Storing all classified attributes could be verbose; consider summarizing or hashing if needed
+                    "attributes_summary": [{attr.attribute_name: attr.category.name} for attr in classified_attributes]
+                },
+                original_data=data_record,
+                policy_id=policy_id,
+                consent_id=user_consent.consent_id if user_consent else None
+            )
 
         # 4. Use ObfuscationEngine to process data (which internally uses PolicyEvaluator)
         # The ObfuscationEngine's process_data_attributes will apply obfuscation field by field
@@ -153,8 +212,30 @@ class PrivacyEnforcer:
                  # The status would be set by PolicyEvaluator implicitly through ObfuscationEngine
                  # For now, let's assume ObfuscationEngine's output reflects the most granular outcome.
                  # The PrivacyStatus here is more about the overall record.
+                 # A more specific DENIED status might be better if all_denied is true.
+                 # For example, if status is PERMITTED_OBFUSCATED but all_denied is true,
+                 # it implies every field was obfuscated to a point of denial.
+                 # However, the current ObfuscationEngine.process_data_attributes aims to return usable (even if obfuscated) data.
+                 # True "denial" of a field usually means it's fully redacted or removed.
+                 # If status is PERMITTED_OBFUSCATED and all_denied is true, it's effectively a DENIED_CONSENT_RESTRICTION or DENIED_POLICY_RESTRICTION
+                 # This logic can be refined here or within the ObfuscationEngine/PolicyEvaluator for more precise status reporting.
                  pass
 
+        # Log the final processing event
+        if self.auditor:
+            self.auditor.log_event(
+                event_type=status.name, # Use the determined status as the event type
+                details={
+                    "user_id": user_id, "policy_id": policy_id, "policy_version": policy_version,
+                    "intended_purpose": intended_purpose.name,
+                    "intended_third_party": intended_third_party,
+                    "message": f"Final processing status: {status.name}"
+                },
+                original_data=data_record,
+                processed_data=processed_data,
+                policy_id=policy_id,
+                consent_id=user_consent.consent_id if user_consent else None
+            )
 
         return {
             "status": status,

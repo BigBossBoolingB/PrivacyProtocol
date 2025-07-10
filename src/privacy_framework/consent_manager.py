@@ -2,7 +2,8 @@
 """
 Manages user consent records for the Privacy Protocol.
 """
-
+import json # Added
+import hashlib # Added
 from typing import Dict, Optional, List, Any
 import time
 
@@ -134,31 +135,67 @@ class ConsentManager:
     def sign_consent(self, user_id: str, consent_id: str, signature_service: Optional[Any] = None) -> Optional[UserConsent]:
         """
         Placeholder for cryptographically signing a UserConsent object.
-        In a real implementation, this would involve a signature service or library.
+        This conceptual method outlines how a consent record would be prepared for
+        verifiable storage, potentially on a decentralized ledger (Consent Chain).
 
         Args:
-            user_id (str): The ID of the user.
+            user_id (str): The ID of the user (e.g., a DID from DigiSocialBlock).
             consent_id (str): The ID of the consent to sign.
-            signature_service (Optional[Any]): A conceptual service for generating signatures.
+            signature_service (Optional[Any]): A conceptual external or integrated service
+                                             (e.g., linked to user's wallet/identity in DigiSocialBlock)
+                                             that can perform cryptographic signing.
 
         Returns:
-            Optional[UserConsent]: The consent object with a placeholder signature, or None if not found or save fails.
+            Optional[UserConsent]: The consent object with its `signature` field populated,
+                                 or None if the consent is not found or saving fails.
         """
+        # TODO: Integrate with DigiSocialBlock's identity/wallet for actual cryptographic signing.
+        #       This would involve:
+        #       1. Serializing the core consent details into a canonical format.
+        #       2. The user (or their agent) signing this data using their private key.
+        #          (e.g., `signed_data_hash = Transaction.Sign(user_private_key, hash_of_canonical_consent_data)`)
+        #       3. Storing the signature in `consent.signature`.
+        #       4. Optionally, anchoring the hash of the signed consent or the consent itself
+        #          to a blockchain (e.g., EmPower1 or a dedicated Consent Chain via DigiSocialBlock)
+        #          to create an immutable, verifiable, and timestamped record.
+        #          (e.g., `ledger_tx_id = ConsentChain.recordConsent(consent_id, user_did, signed_consent_hash)`)
+        #       Verification would then involve:
+        #       1. Retrieving the signed consent.
+        #       2. Re-serializing its core details.
+        #       3. Using the user's public key (from DID) to verify the signature against the serialized data.
+        #          (e.g., `isValid = VerifySignature(user_public_key, signature, hash_of_canonical_consent_data)`)
+        #       4. Optionally, cross-referencing with the blockchain record.
+
         consent = self.store.load_consent(user_id=user_id, consent_id=consent_id)
         if not consent:
             return None
 
-        # Conceptual: Generate a string representation of consent to be signed
-        # consent_data_to_sign = f"{consent.consent_id}|{consent.user_id}|{consent.policy_id}|{consent.version}|{consent.timestamp}"
-        # In a real scenario, use a stable serialization format (e.g., canonical JSON)
+        # Conceptual: Create a stable string representation of what's being signed.
+        # Important fields should be included. Order matters for consistent hashing if hash is signed.
+        data_to_sign_parts = [
+            consent.consent_id,
+            consent.user_id,
+            consent.policy_id,
+            str(consent.version),
+            str(consent.timestamp), # Original timestamp of granting/last significant update
+            json.dumps(sorted([cat.value for cat in consent.data_categories_consented])),
+            json.dumps(sorted([p.value for p in consent.purposes_consented])),
+            json.dumps(sorted(consent.third_parties_consented)),
+            str(consent.is_active)
+        ]
+        consent_data_to_sign = "|".join(data_to_sign_parts)
 
         if signature_service:
-            # conceptual_signature = signature_service.sign(consent_data_to_sign)
-            consent.signature = f"signed_by_conceptual_service_at_{int(time.time())}"
+            # In a real system: conceptual_signature = signature_service.sign(consent_data_to_sign)
+            # For now, just a placeholder indicating it was "signed"
+            consent.signature = f"conceptually_signed_by_service({hashlib.sha256(consent_data_to_sign.encode()).hexdigest()[:16]})_at_{int(time.time())}"
         else:
-            consent.signature = f"placeholder_signature_for_{consent_id}"
+            consent.signature = f"placeholder_signature_for_{consent_id}_datahash_{hashlib.sha256(consent_data_to_sign.encode()).hexdigest()[:8]}"
 
-        consent.timestamp = int(time.time()) # Signature implies an update
+        # Signing might be considered an update to the consent record itself (adding the signature),
+        # so updating the timestamp might be relevant. Or, the signature timestamp is separate.
+        # For this conceptual step, let's assume signing also updates the record's timestamp.
+        consent.timestamp = int(time.time())
 
         if self.store.save_consent(consent): # Re-store to save the signature and new timestamp
             return consent
