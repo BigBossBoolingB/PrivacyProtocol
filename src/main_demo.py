@@ -16,7 +16,9 @@ try:
     from privacy_framework.consent_manager import ConsentManager
     from privacy_framework.policy_evaluator import PolicyEvaluator
     from privacy_framework.data_classifier import DataClassifier
-    from privacy_framework.obfuscation_engine import ObfuscationEngine, ObfuscationMethod
+    from privacy_framework.obfuscation_engine import ObfuscationEngine
+    from privacy_framework.privacy_enforcer import PrivacyEnforcer, PrivacyStatus # Added
+    from demo_helpers.mock_data_generator import MockDataGenerator # Added
 except ImportError:
     print("ImportError: Make sure you are running this script from the project root,")
     print("or that the 'src' directory is in your PYTHONPATH.")
@@ -60,6 +62,15 @@ def run_demonstration():
     policy_evaluator = PolicyEvaluator()
     data_classifier = DataClassifier()
     obfuscation_engine = ObfuscationEngine()
+    # Initialize new components for this demo
+    mock_data_generator = MockDataGenerator(user_ids=[USER_ID]) # Generate data for our demo user
+    privacy_enforcer = PrivacyEnforcer(
+        data_classifier=data_classifier,
+        policy_evaluator=policy_evaluator,
+        obfuscation_engine=obfuscation_engine,
+        consent_manager=consent_manager,
+        policy_store=policy_store
+    )
     print("Components initialized.\n")
 
     # --- 2. Define & Save a Sample Privacy Policy using PolicyStore ---
@@ -127,106 +138,63 @@ def run_demonstration():
         print(f"ERROR: Could not retrieve active consent ({user_consent_obj.consent_id}) after restart. Demo cannot continue accurately.")
         return
 
-    # --- 4. Sample Raw Data & Classification ---
-    print("--- 4. Sample Raw Data & Classification ---")
-    sample_raw_data = {
-        "full_name": "Jane Doe",
-        "email_address": "jane.doe@example.com",
-        "primary_phone": "555-012-3456",
-        "last_login_ip": "203.0.113.45",
-        "last_purchase_category": "electronics",
-        "user_agent_string": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ...",
-        "current_city": "New York"
-    }
-    print(f"Sample Raw Data:\n{json.dumps(sample_raw_data, indent=2)}\n")
+    # --- 4. Sample Raw Data Generation & Processing via PrivacyEnforcer ---
+    print("--- 4. Sample Raw Data Generation & Processing via PrivacyEnforcer ---")
 
-    classified_attributes = data_classifier.classify_data(sample_raw_data)
-    print("Classified Data Attributes:")
-    attr_map_for_demo = {}
-    for attr in classified_attributes:
-        print(f"  - {attr.attribute_name}: Category={attr.category.name}, Sensitivity={attr.sensitivity_level.name}, PII={attr.is_pii}, ObfPref={attr.obfuscation_method_preferred.name}")
-        attr_map_for_demo[attr.attribute_name] = attr
-    print("")
+    sample_data_records = [
+        mock_data_generator.generate_user_activity_event(), # Might contain email
+        mock_data_generator.generate_user_activity_event(),
+        mock_data_generator.generate_sensor_reading() # Might contain location
+    ]
+    # Add a specific record with known PII for targeted testing
+    sample_data_records.append({
+        "event_id": str(uuid.uuid4()), "user_id": USER_ID, "action": "profile_update",
+        "customer_email": "jane.doe@personal.com", "full_name": "Jane Personal Doe",
+        "delivery_address": "123 Privacy Lane, Secret City", "timestamp": mock_data_generator._get_current_timestamp()
+    })
 
-    # --- 5. End-to-End Data Operation Evaluation & Obfuscation ---
-    print("--- 5. End-to-End Data Operation Evaluation & Obfuscation ---")
 
-    scenarios = [
-        {
-            "name": "Display User Profile (Service Delivery)",
-            "purpose": Purpose.SERVICE_DELIVERY,
-            "third_party": None,
-            "data_to_process": {"full_name": sample_raw_data["full_name"], "email_address": sample_raw_data["email_address"]}
-        },
-        {
-            "name": "Send Marketing Email (Marketing)",
-            "purpose": Purpose.MARKETING,
-            "third_party": None,
-            "data_to_process": {"email_address": sample_raw_data["email_address"]}
-        },
-        {
-            "name": "Internal Security Logging (Security)",
-            "purpose": Purpose.SECURITY,
-            "third_party": None,
-            "data_to_process": {"last_login_ip": sample_raw_data["last_login_ip"]}
-        },
-        {
-            "name": "Share Usage Data with Analytics Partner (Analytics)",
-            "purpose": Purpose.ANALYTICS,
-            "third_party": "trusted_analytics_partner.com",
-            "data_to_process": {"last_purchase_category": sample_raw_data["last_purchase_category"], "user_agent_string": sample_raw_data["user_agent_string"], "current_city": sample_raw_data["current_city"]}
-        },
-        {
-            "name": "Share Data with Unapproved Ad Network (Marketing)",
-            "purpose": Purpose.MARKETING,
-            "third_party": "advertising_network.com", # Policy allows, but consent might not
-            "data_to_process": {"email_address": sample_raw_data["email_address"], "current_city": sample_raw_data["current_city"]}
-        }
+    processing_scenarios = [
+        {"purpose": Purpose.SERVICE_DELIVERY, "third_party": None, "description": "Core Service Functionality"},
+        {"purpose": Purpose.MARKETING, "third_party": None, "description": "Internal Marketing"},
+        {"purpose": Purpose.ANALYTICS, "third_party": "trusted_analytics_partner.com", "description": "Analytics with Trusted Partner"},
+        {"purpose": Purpose.MARKETING, "third_party": "advertising_network.com", "description": "Ad Network Targeting"}
     ]
 
-    for scenario_index, scenario in enumerate(scenarios):
-        print(f"\n--- Scenario {scenario_index + 1}: {scenario['name']} ---")
-        print(f"  Proposed Purpose: {scenario['purpose'].name}")
-        if scenario['third_party']:
-            print(f"  Proposed Third Party: {scenario['third_party']}")
-        print(f"  Data involved (original): {scenario['data_to_process']}")
+    for i, data_record in enumerate(sample_data_records):
+        print(f"\n--- Processing Record {i+1} ---")
+        print(f"Original Data Record:\n{json.dumps(data_record, indent=2)}")
 
-        # For each field in this scenario's data_to_process, we need its classification
-        scenario_attributes = []
-        for key in scenario['data_to_process'].keys():
-            if key in attr_map_for_demo: # Use the globally classified attribute for this key
-                scenario_attributes.append(attr_map_for_demo[key])
-            else: # Should not happen if data_to_process keys are from sample_raw_data
-                print(f"Warning: Key '{key}' not found in initial classification for scenario.")
-                # Create a default 'OTHER' attribute if missing
-                scenario_attributes.append(DataAttribute(key, DataCategory.OTHER, SensitivityLevel.LOW))
+        # Ensure the data_record has a user_id, or assign one for the demo if it's from a generic generator part
+        current_user_id = data_record.get("user_id", USER_ID)
+        if "user_id" not in data_record and "device_id" in data_record: # Sensor data might not have user_id
+             # In a real system, device_id might be linkable to a user_id. For demo, assume it is.
+             print(f"  (Note: Sensor data for device {data_record['device_id']}, associating with demo user {USER_ID})")
 
 
-        processed_scenario_data = obfuscation_engine.process_data_attributes(
-            raw_data=scenario['data_to_process'],
-            classified_attributes=scenario_attributes, # Pass only relevant attributes
-            policy=demo_policy,
-            consent=active_consent,
-            proposed_purpose=scenario['purpose'],
-            policy_evaluator=policy_evaluator,
-            proposed_third_party=scenario['third_party']
-        )
-        print(f"  Processed Data: {json.dumps(processed_scenario_data, indent=2)}")
+        for scen in processing_scenarios:
+            print(f"\n  Scenario: {scen['description']} (Purpose: {scen['purpose'].name}, Third Party: {scen['third_party']})")
 
-        # Add a small explanation of why fields might be obfuscated
-        for key, val in processed_scenario_data.items():
-            original_val = scenario['data_to_process'].get(key)
-            if val != original_val:
-                attr_for_key = next((a for a in scenario_attributes if a.attribute_name == key), None)
-                if attr_for_key:
-                     is_perm = policy_evaluator.is_operation_permitted(demo_policy, active_consent, [attr_for_key], scenario['purpose'], scenario['third_party'])
-                     print(f"    - Field '{key}': Original='{original_val}', Processed='{val}'. Permission: {'Granted' if is_perm else 'Denied -> Obfuscated'}")
-                else:
-                     print(f"    - Field '{key}': Original='{original_val}', Processed='{val}'. (Attribute details not found for explanation)")
+            enforcer_result = privacy_enforcer.process_data_record(
+                user_id=current_user_id, # Use user_id from record or default
+                policy_id=loaded_policy.policy_id,
+                policy_version=loaded_policy.version,
+                data_record=data_record,
+                intended_purpose=scen["purpose"],
+                intended_third_party=scen["third_party"]
+            )
+
+            print(f"  Enforcer Status: {enforcer_result['status'].name}")
+            print(f"  Processed Data:\n{json.dumps(enforcer_result['processed_data'], indent=2, ensure_ascii=False)}")
+            if enforcer_result['status'] != PrivacyStatus.PERMITTED_RAW:
+                 print(f"  Message: {enforcer_result['message']}")
 
 
     print("\n--- 6. Demonstration Complete ---")
-    print(f"User profiles for this demo are stored in: {os.path.abspath(PROFILE_STORAGE_PATH)}") # Profile storage not used in this version of demo
+    # print(f"User profiles for this demo are stored in: {os.path.abspath(PROFILE_STORAGE_PATH)}") # Profile storage not used in this version of demo
+    print(f"Policy data for this demo is in: {os.path.abspath(POLICY_STORAGE_PATH)}")
+    print(f"Consent data for this demo is in: {os.path.abspath(CONSENT_STORAGE_PATH)}")
+    print("You can delete the '_app_data_main_demo/' directory if you wish.")
     print("=======================================\n")
 
 if __name__ == "__main__":
