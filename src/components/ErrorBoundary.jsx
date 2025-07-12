@@ -1,5 +1,5 @@
 import React from 'react';
-import { trackError } from '@/utils/error-tracking';
+import { trackError } from '@/utils/error-tracking.ts';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {

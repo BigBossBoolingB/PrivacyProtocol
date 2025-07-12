@@ -1,4 +1,3 @@
-import './App.css';
 import { RouterProvider, createBrowserRouter } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { routes } from './routes';
