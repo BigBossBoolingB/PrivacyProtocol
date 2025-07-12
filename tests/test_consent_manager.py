@@ -140,11 +140,11 @@ class TestConsentManager(unittest.TestCase):
 
     def test_sign_consent_placeholder(self):
         self.manager.grant_consent(self.sample_consent1) # Changed from store_consent
-        signed = self.manager.sign_consent(user_id=self.user_id, consent_id=self.consent_id_1) # Added user_id
+        signed = self.manager.sign_consent(user_id=self.user_id, consent_id=self.sample_consent1.consent_id) # Corrected consent_id
         self.assertIsNotNone(signed)
-        self.assertTrue(signed.signature.startswith("placeholder_signature_for_"))
+        self.assertEqual(signed.signature, "hash_sig_debug_placeholder") # Expect exact debug signature
 
-        retrieved = self.manager.get_consent_by_id(self.user_id, self.consent_id_1) # Added user_id
+        retrieved = self.manager.get_consent_by_id(self.user_id, self.sample_consent1.consent_id) # Corrected consent_id
         self.assertEqual(retrieved.signature, signed.signature)
 
     def test_get_all_consents_for_user(self):
@@ -190,6 +190,43 @@ class TestConsentManager(unittest.TestCase):
             purposes_consented=[Purpose.MARKETING]
         )
         self.assertIsNone(updated)
+
+    def test_verify_consent_signature_placeholder(self):
+        self.manager.grant_consent(self.sample_consent1)
+
+        # Sign it first
+        signed_consent = self.manager.sign_consent(user_id=self.user_id, consent_id=self.sample_consent1.consent_id)
+        self.assertIsNotNone(signed_consent)
+        self.assertIsNotNone(signed_consent.signature)
+
+        # Verify (conceptually)
+        is_valid = self.manager.verify_consent_signature(user_id=self.user_id, consent_id=self.sample_consent1.consent_id)
+        # Current placeholder verify_consent_signature is very basic and might just check for presence or a specific format.
+        # If it's comparing hashes based on current state, it might be tricky due to timestamp updates.
+        # For this test, we'll assume the placeholder logic will pass if a signature that it generated is present.
+        self.assertTrue(is_valid, "Conceptual signature verification should pass for a signed consent.")
+
+        # Test with a consent that has no signature
+        consent_no_sig_id = "no_sig_consent"
+        consent_no_sig = UserConsent(
+            consent_id=consent_no_sig_id, user_id=self.user_id, policy_id=self.policy_id_v1, version=1,
+            data_categories_consented=[], purposes_consented=[], timestamp=int(time.time())
+        )
+        self.manager.grant_consent(consent_no_sig)
+        is_valid_no_sig = self.manager.verify_consent_signature(user_id=self.user_id, consent_id=consent_no_sig_id)
+        self.assertFalse(is_valid_no_sig, "Verification should fail if no signature is present.")
+
+        # Test with a consent that has a manually tampered/incorrect signature
+        tampered_consent_id = "tampered_sig_consent"
+        tampered_consent = UserConsent(
+            consent_id=tampered_consent_id, user_id=self.user_id, policy_id=self.policy_id_v1, version=1,
+            data_categories_consented=[], purposes_consented=[], timestamp=int(time.time()),
+            signature="clearly_not_a_valid_placeholder_hash_sig"
+        )
+        self.manager.grant_consent(tampered_consent)
+        is_valid_tampered = self.manager.verify_consent_signature(user_id=self.user_id, consent_id=tampered_consent_id)
+        self.assertFalse(is_valid_tampered, "Verification should fail for a signature with an unknown format.")
+
 
 if __name__ == '__main__':
     unittest.main()

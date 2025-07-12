@@ -11,9 +11,9 @@ try:
     from .obfuscation_engine import ObfuscationEngine
     from .consent_manager import ConsentManager
     from .policy_store import PolicyStore
-    from .policy import PrivacyPolicy, Purpose, LegalBasis # Added LegalBasis
+    from .policy import PrivacyPolicy, Purpose, LegalBasis
     from .consent import UserConsent
-    from .data_attribute import DataAttribute # For type hinting
+    from .data_attribute import DataAttribute, ObfuscationMethod # Added ObfuscationMethod for fallback
 except ImportError:
     # Fallback for direct execution or different project structures
     from privacy_framework.data_classifier import DataClassifier
@@ -21,9 +21,9 @@ except ImportError:
     from privacy_framework.obfuscation_engine import ObfuscationEngine
     from privacy_framework.consent_manager import ConsentManager
     from privacy_framework.policy_store import PolicyStore
-    from privacy_framework.policy import PrivacyPolicy, Purpose, LegalBasis # Added LegalBasis
+    from privacy_framework.policy import PrivacyPolicy, Purpose, LegalBasis
     from privacy_framework.consent import UserConsent
-    from privacy_framework.data_attribute import DataAttribute
+    from privacy_framework.data_attribute import DataAttribute, ObfuscationMethod # Added ObfuscationMethod for fallback
 
 
 class PrivacyStatus(Enum):
@@ -49,13 +49,15 @@ class PrivacyEnforcer:
                  obfuscation_engine: ObfuscationEngine,
                  consent_manager: ConsentManager,
                  policy_store: PolicyStore,
-                 auditor: Optional['DataTransformationAuditor'] = None): # Added auditor
+                 auditor: Optional['DataTransformationAuditor'] = None,
+                 policy_verifier: Optional['PolicyVerifier'] = None): # Added policy_verifier
         self.data_classifier = data_classifier
         self.policy_evaluator = policy_evaluator
         self.obfuscation_engine = obfuscation_engine
         self.consent_manager = consent_manager
         self.policy_store = policy_store
-        self.auditor = auditor # Added auditor
+        self.auditor = auditor
+        self.policy_verifier = policy_verifier # Added policy_verifier
 
     def process_data_record(self,
                               user_id: str,
@@ -75,51 +77,53 @@ class PrivacyEnforcer:
         """
         # 1. Load the relevant PrivacyPolicy
         policy = self.policy_store.load_policy(policy_id, version=policy_version)
-        if not policy:
-            return {
-                "status": PrivacyStatus.DENIED_NO_POLICY,
-                "processed_data": self.obfuscation_engine.process_data_attributes(
-                    data_record,
-                    self.data_classifier.classify_data(data_record), # Classify to know preferred obf.
-                    PrivacyPolicy(policy_id="fallback_deny", version=0, data_categories=[], purposes=[], legal_basis=LegalBasis.NOT_APPLICABLE, text_summary="Fallback", retention_period="0", third_parties_shared_with=[]), # Dummy policy for full obfuscation
-                    None,
-                    intended_purpose,
-                    self.policy_evaluator,
-                    intended_third_party
-                ),
-                "message": f"Policy {policy_id} v{policy_version or 'latest'} not found. Data obfuscated by default."
+
+        if not policy: # DENIED_NO_POLICY case
+            classified_attrs_fallback = self.data_classifier.classify_data(data_record)
+            # Perform a default strict obfuscation for all fields
+            processed_fallback = {
+                key: self.obfuscation_engine.obfuscate_field(
+                    value,
+                    # Try to get preferred method, else REDACT
+                    next((attr.obfuscation_method_preferred for attr in classified_attrs_fallback if attr.attribute_name == key and attr.obfuscation_method_preferred != ObfuscationMethod.NONE), ObfuscationMethod.REDACT)
+                ) for key, value in data_record.items()
             }
-        if not policy:
-            # This is the DENIED_NO_POLICY case.
-            # The original return block already does what's needed for processed_data.
-            # We just need to add the audit log before returning.
-            classified_attributes_for_fallback = self.data_classifier.classify_data(data_record)
-            fallback_obfuscated_data = self.obfuscation_engine.process_data_attributes(
-                data_record,
-                classified_attributes_for_fallback,
-                PrivacyPolicy(policy_id="fallback_deny", version=0, data_categories=[], purposes=[], legal_basis=LegalBasis.NOT_APPLICABLE, text_summary="Fallback", retention_period="0", third_parties_shared_with=[]),
-                None,
-                intended_purpose,
-                self.policy_evaluator,
-                intended_third_party
-            )
             if self.auditor:
                 self.auditor.log_event(
                     event_type=PrivacyStatus.DENIED_NO_POLICY.name,
-                    details={
-                        "user_id": user_id, "policy_id": policy_id, "policy_version": policy_version,
-                        "intended_purpose": intended_purpose.name, "intended_third_party": intended_third_party,
-                        "reason": f"Policy {policy_id} v{policy_version or 'latest'} not found."
-                    },
-                    original_data=data_record,
-                    processed_data=fallback_obfuscated_data,
-                    policy_id=policy_id
-                )
-            return {
-                "status": PrivacyStatus.DENIED_NO_POLICY,
-                "processed_data": fallback_obfuscated_data,
-                "message": f"Policy {policy_id} v{policy_version or 'latest'} not found. Data obfuscated by default."
-            }
+                    details={"user_id": user_id, "attempted_policy_id": policy_id, "attempted_version": policy_version,
+                             "intended_purpose": intended_purpose.name, "intended_third_party": intended_third_party,
+                             "reason": "Policy not found."},
+                    original_data=data_record, processed_data=processed_fallback, policy_id=policy_id)
+            return {"status": PrivacyStatus.DENIED_NO_POLICY, "processed_data": processed_fallback,
+                    "message": f"Policy {policy_id} v{policy_version or 'latest'} not found. Data fully obfuscated by default."}
+
+        # 1.5 Conceptual: Verify policy adherence to formal rules *before* operational checks
+        if self.policy_verifier:
+            # Note: verify_policy_adherence currently only checks policy structure.
+            # A more advanced verifier might take `intended_purpose`, `data_record` (or its classification)
+            # to check operational rules against the policy.
+            # For now, we check general policy soundness.
+            verification_results = self.policy_verifier.verify_policy_adherence(policy)
+            failed_rules = [rule_id for rule_id, adhered in verification_results.items() if not adhered]
+            if failed_rules:
+                # Policy itself is flawed according to formal rules. Deny and obfuscate all.
+                classified_attrs_fallback = self.data_classifier.classify_data(data_record)
+                processed_fallback = {
+                    key: self.obfuscation_engine.obfuscate_field(
+                        value,
+                        next((attr.obfuscation_method_preferred for attr in classified_attrs_fallback if attr.attribute_name == key and attr.obfuscation_method_preferred != ObfuscationMethod.NONE), ObfuscationMethod.REDACT)
+                    ) for key, value in data_record.items()
+                }
+                if self.auditor:
+                    self.auditor.log_event(
+                        event_type=PrivacyStatus.DENIED_POLICY_RESTRICTION.name,
+                        details={"user_id": user_id, "policy_id": policy.policy_id, "policy_version": policy.version,
+                                 "intended_purpose": intended_purpose.name, "intended_third_party": intended_third_party,
+                                 "reason": f"Policy failed formal verification for rules: {', '.join(failed_rules)}."},
+                        original_data=data_record, processed_data=processed_fallback, policy_id=policy.policy_id)
+                return {"status": PrivacyStatus.DENIED_POLICY_RESTRICTION, "processed_data": processed_fallback,
+                        "message": f"Policy {policy.policy_id} failed formal verification. Operation denied. Violated rules: {', '.join(failed_rules)}."}
 
         # 2. Load UserConsent for the user and policy
         # ConsentManager's get_active_consent should ideally check policy version match too.

@@ -45,6 +45,8 @@ def run_demonstration():
     if os.path.exists("_app_data_main_demo/"):
         shutil.rmtree("_app_data_main_demo/")
     # Stores will create their specific subdirectories
+    if os.path.exists(AUDIT_LOG_FILEPATH): # Clean up audit log from previous runs too
+        os.remove(AUDIT_LOG_FILEPATH)
 
     # --- 1. Initialize Core Components (including Stores) ---
     print("--- 1. Initializing Core Components ---")

@@ -67,8 +67,10 @@ class ConsentStore:
 
         filepath = self._get_consent_filepath(consent.user_id, consent.consent_id)
         try:
+            consent_dict_to_save = consent.to_dict()
+            # print(f"[ConsentStore DEBUG SAVE] Consent ID: {consent.consent_id}, Dict being saved: {consent_dict_to_save.get('signature')}") # DEBUG
             with open(filepath, 'w') as f:
-                json.dump(consent.to_dict(), f, indent=2)
+                json.dump(consent_dict_to_save, f, indent=2)
             return True
         except IOError as e:
             print(f"Error saving consent {consent.consent_id} to {filepath}: {e}")
@@ -94,6 +96,7 @@ class ConsentStore:
         try:
             with open(filepath, 'r') as f:
                 data = json.load(f)
+                # print(f"[ConsentStore DEBUG LOAD] Consent ID: {consent_id}, Loaded dict signature: {data.get('signature')}") # DEBUG
                 # TODO: Future - Verify cryptographic signature here if present (data.get("signature"))
                 #       using DigiSocialBlock's identity system / user's public key.
                 return UserConsent.from_dict(data)
