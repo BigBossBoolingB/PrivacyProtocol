@@ -23,6 +23,10 @@ import { format } from "date-fns";
 import HistoryFilters from "../components/history/HistoryFilters";
 import AgreementCard from "../components/history/AgreementCard";
 import AgreementModal from "../components/history/AgreementModal";
+import { useVirtualizedList } from "@/hooks/use-virtualized-list"; // Added import
+
+// Define a fixed height for each item in the virtualized list
+const ITEM_HEIGHT = 160; // Adjust this based on AgreementCard's typical height + gap
 
 export default function History() {
   const [agreements, setAgreements] = useState([]);
@@ -139,6 +143,16 @@ export default function History() {
 
   const stats = getRiskStats();
 
+  const {
+    containerProps,
+    totalHeight,
+    visibleItems
+  } = useVirtualizedList({
+    items: filteredAgreements,
+    itemHeight: ITEM_HEIGHT,
+    overscan: 5 // Render a few more items for smoother scrolling
+  });
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -204,16 +218,17 @@ export default function History() {
         </div>
 
         {/* Results */}
-        <div className="space-y-6">
+        {/* Ensure this container has a defined height for virtualization to work */}
+        <div className="space-y-6 h-[600px] overflow-y-auto" {...containerProps}>
           {loading ? (
-            <div className="text-center py-12">
+            <div className="text-center py-12 flex flex-col items-center justify-center h-full">
               <div className="w-16 h-16 mx-auto bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center mb-4">
                 <HistoryIcon className="w-8 h-8 text-white animate-pulse" />
               </div>
               <p className="text-gray-400">Loading your analysis history...</p>
             </div>
           ) : filteredAgreements.length === 0 ? (
-            <div className="text-center py-12">
+            <div className="text-center py-12 flex flex-col items-center justify-center h-full">
               <div className="w-16 h-16 mx-auto bg-gray-700 rounded-full flex items-center justify-center mb-4">
                 <Search className="w-8 h-8 text-gray-400" />
               </div>
@@ -224,13 +239,17 @@ export default function History() {
               </p>
             </div>
           ) : (
-            <div className="grid gap-4">
-              {filteredAgreements.map((agreement) => (
-                <AgreementCard
-                  key={agreement.id}
-                  agreement={agreement}
-                  onView={() => setSelectedAgreement(agreement)}
-                />
+            // This inner div acts as a sizer for the scrollbar
+            <div style={{ height: totalHeight }}>
+              {visibleItems.map(({ item: agreement, style, index }) => (
+                <div key={agreement.id || index} style={style}>
+                  <div className="p-2"> {/* Adding some padding for gap effect */}
+                    <AgreementCard
+                      agreement={agreement}
+                      onView={() => setSelectedAgreement(agreement)}
+                    />
+                  </div>
+                </div>
               ))}
             </div>
           )}

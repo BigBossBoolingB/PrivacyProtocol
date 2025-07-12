@@ -35,7 +35,7 @@ root.render(
   </React.StrictMode>
 );
 
-// Measure render completion
+// Measure render completion and register Service Worker
 window.addEventListener('load', () => {
   performance.mark('initial_render_end');
   performance.measure('initial_render', 'initial_render_start', 'initial_render_end');
@@ -48,5 +48,16 @@ window.addEventListener('load', () => {
   // Report to analytics in production
   if (process.env.NODE_ENV === 'production') {
     // reportPerformanceMetric('initial_render', entries[0].duration);
+  }
+
+  // Register Service Worker
+  if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+    navigator.serviceWorker.register('/sw.js')
+      .then(registration => {
+        console.log('Service Worker registered with scope:', registration.scope);
+      })
+      .catch(error => {
+        console.error('Service Worker registration failed:', error);
+      });
   }
 });
