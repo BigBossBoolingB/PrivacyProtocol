@@ -43,15 +43,22 @@ describe('Rendering Performance', () => {
     document.body.appendChild(container);
     root = createRoot(container);
     
-    // Mock performance API if needed
-    if (!window.performance) {
-      window.performance = {
-        mark: jest.fn(),
-        measure: jest.fn(),
-        getEntriesByName: jest.fn().mockReturnValue([{ duration: 100 }]),
-        clearMarks: jest.fn(),
-        clearMeasures: jest.fn()
-      };
+    // Mock performance API for both window and global scope
+    const mockPerformance = {
+      mark: jest.fn(),
+      measure: jest.fn(),
+      getEntriesByName: jest.fn().mockReturnValue([{ duration: 100 }]),
+      clearMarks: jest.fn(),
+      clearMeasures: jest.fn(),
+      now: jest.fn().mockReturnValue(Date.now())
+    };
+    
+    if (!window.performance || typeof window.performance.mark !== 'function') {
+      window.performance = mockPerformance;
+    }
+    
+    if (!global.performance || typeof global.performance.mark !== 'function') {
+      global.performance = mockPerformance;
     }
   });
   
