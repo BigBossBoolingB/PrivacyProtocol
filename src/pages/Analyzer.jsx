@@ -22,6 +22,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { analyzePolicyText, calculateRiskScore, extractClauses } from "@/utils/webWorkers";
 
 import FileUploadZone from "../components/analyzer/FileUploadZone";
 import URLAnalyzer from "../components/analyzer/URLAnalyzer";
@@ -83,7 +84,21 @@ export default function Analyzer() {
       setAnalysisStep('Extracting content...');
       setProgress(20);
 
-      // Step 2: AI Analysis
+      // Step 2: Use Web Worker for heavy text analysis
+      setAnalysisStep('Analyzing text structure...');
+      setProgress(30);
+      
+      const textAnalysis = await analyzePolicyText(content, {
+        includeReadability: true,
+        extractKeyTerms: true
+      });
+
+      setAnalysisStep('Extracting privacy clauses...');
+      setProgress(35);
+      
+      const extractedClauses = await extractClauses(content);
+
+      // Step 3: AI Analysis
       setAnalysisStep('AI analyzing privacy risks...');
       setProgress(40);
 
@@ -201,13 +216,21 @@ export default function Analyzer() {
       setAnalysisStep('Calculating personalized risk score...');
       setProgress(60);
 
-      // Step 3: Calculate Risk Score with dedicated function
-      const { data: riskData } = await riskScoreCalculator({ agreementData: analysisResult });
+      // Step 4: Calculate Risk Score with Web Worker and dedicated function
+      const webWorkerRiskAnalysis = await calculateRiskScore(extractedClauses);
+      const { data: riskData } = await riskScoreCalculator({ 
+        agreementData: analysisResult,
+        preAnalysis: {
+          textAnalysis,
+          extractedClauses,
+          webWorkerRiskAnalysis
+        }
+      });
       
       setAnalysisStep('Generating insights...');
       setProgress(80);
 
-      // Step 4: Save results
+      // Step 5: Save results
       setAnalysisStep('Saving analysis...');
       setProgress(90);
 
@@ -226,6 +249,9 @@ export default function Analyzer() {
         user_rights_summary: analysisResult.user_rights_summary || {},
         recommendations: analysisResult.recommendations || [],
         opt_out_options: analysisResult.opt_out_options || [],
+        textAnalysis,
+        extractedClauses,
+        webWorkerRiskAnalysis,
         status: 'completed'
       };
 

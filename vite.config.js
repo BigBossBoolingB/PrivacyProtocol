@@ -31,6 +31,11 @@ export default defineConfig(({ mode }) => {
       },
     },
     
+    worker: {
+      format: 'es',
+      plugins: [react()]
+    },
+    
     build: {
       // Optimize build
       target: 'es2020',
@@ -63,7 +68,8 @@ export default defineConfig(({ mode }) => {
             ],
             'form-utils': ['react-hook-form', '@hookform/resolvers', 'zod'],
             'data-viz': ['recharts'],
-            'utils': ['date-fns', 'clsx', 'tailwind-merge']
+            'utils': ['date-fns', 'clsx', 'tailwind-merge'],
+            'workers': ['./src/workers/analysisWorker.js']
           }
         }
       },

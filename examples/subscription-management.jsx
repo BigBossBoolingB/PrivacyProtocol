@@ -78,7 +78,7 @@ function SubscriptionManagement() {
       {isNearLimit(subscription.current_usage.analyses_used, subscription.usage_limits.analyses_per_month) && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-6">
           <p className="text-yellow-800">
-            ⚠️ You're approaching your monthly analysis limit. Consider upgrading to continue analyzing policies.
+            ⚠️ You&apos;re approaching your monthly analysis limit. Consider upgrading to continue analyzing policies.
           </p>
         </div>
       )}
