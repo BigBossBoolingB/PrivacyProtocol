@@ -7,6 +7,8 @@ import { SubscriptionProvider } from './contexts/SubscriptionContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { ErrorBoundary } from './components/ui/error-boundary';
+import ErrorBoundaryComponent from './components/ErrorBoundary';
+import AsyncErrorBoundary from './components/AsyncErrorBoundary';
 import { initAnalytics } from './utils/analytics';
 import { initErrorTracking } from './utils/error-tracking';
 import { useEffect } from 'react';
@@ -46,18 +48,22 @@ function App() {
   }, []);
 
   return (
-    <ErrorBoundary>
+    <ErrorBoundaryComponent name="App" context={{ component: 'App' }}>
       <ThemeProvider>
         <AuthProvider>
           <SubscriptionProvider>
             <NotificationProvider>
-              <RouterProvider router={router} />
-              <Toaster position="top-right" richColors closeButton />
+              <AsyncErrorBoundary catchAsync={true}>
+                <ErrorBoundary>
+                  <RouterProvider router={router} />
+                  <Toaster position="top-right" richColors closeButton />
+                </ErrorBoundary>
+              </AsyncErrorBoundary>
             </NotificationProvider>
           </SubscriptionProvider>
         </AuthProvider>
       </ThemeProvider>
-    </ErrorBoundary>
+    </ErrorBoundaryComponent>
   );
 }
 
