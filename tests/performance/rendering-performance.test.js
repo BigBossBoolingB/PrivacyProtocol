@@ -7,7 +7,7 @@
 // or browser performance APIs to measure rendering performance.
 
 import React from 'react';
-import { render, unmountComponentAtNode } from 'react-dom';
+import { createRoot } from 'react-dom/client';
 
 // Mock large data list component
 const LargeList = ({ items }) => (
@@ -35,29 +35,43 @@ const generateItems = (count) => {
 
 describe('Rendering Performance', () => {
   let container = null;
+  let root = null;
   
   beforeEach(() => {
     // Setup a DOM element as a render target
     container = document.createElement('div');
     document.body.appendChild(container);
+    root = createRoot(container);
     
-    // Mock performance API if needed
-    if (!window.performance) {
-      window.performance = {
-        mark: jest.fn(),
-        measure: jest.fn(),
-        getEntriesByName: jest.fn().mockReturnValue([{ duration: 100 }]),
-        clearMarks: jest.fn(),
-        clearMeasures: jest.fn()
-      };
+    // Mock performance API for both window and global scope
+    const mockPerformance = {
+      mark: jest.fn(),
+      measure: jest.fn(),
+      getEntriesByName: jest.fn().mockReturnValue([{ duration: 100 }]),
+      clearMarks: jest.fn(),
+      clearMeasures: jest.fn(),
+      now: jest.fn().mockReturnValue(Date.now())
+    };
+    
+    if (!window.performance || typeof window.performance.mark !== 'function') {
+      window.performance = mockPerformance;
+    }
+    
+    if (!global.performance || typeof global.performance.mark !== 'function') {
+      global.performance = mockPerformance;
     }
   });
   
   afterEach(() => {
     // Cleanup on exiting
-    unmountComponentAtNode(container);
-    container.remove();
-    container = null;
+    if (root) {
+      root.unmount();
+      root = null;
+    }
+    if (container) {
+      container.remove();
+      container = null;
+    }
   });
   
   test('renders large lists efficiently', () => {
@@ -67,21 +81,23 @@ describe('Rendering Performance', () => {
     
     // Measure small list rendering
     performance.mark('small-list-start');
-    render(<LargeList items={smallList} />, container);
+    root.render(<LargeList items={smallList} />);
     performance.mark('small-list-end');
     performance.measure('small-list', 'small-list-start', 'small-list-end');
-    unmountComponentAtNode(container);
+    root.unmount();
+    root = createRoot(container);
     
     // Measure medium list rendering
     performance.mark('medium-list-start');
-    render(<LargeList items={mediumList} />, container);
+    root.render(<LargeList items={mediumList} />);
     performance.mark('medium-list-end');
     performance.measure('medium-list', 'medium-list-start', 'medium-list-end');
-    unmountComponentAtNode(container);
+    root.unmount();
+    root = createRoot(container);
     
     // Measure large list rendering
     performance.mark('large-list-start');
-    render(<LargeList items={largeList} />, container);
+    root.render(<LargeList items={largeList} />);
     performance.mark('large-list-end');
     performance.measure('large-list', 'large-list-start', 'large-list-end');
     

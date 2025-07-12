@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import autoprefixer from 'autoprefixer';
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -28,6 +29,11 @@ export default defineConfig(({ mode }) => {
           '.js': 'jsx',
         },
       },
+    },
+    
+    worker: {
+      format: 'es',
+      plugins: [react()]
     },
     
     build: {
@@ -62,7 +68,8 @@ export default defineConfig(({ mode }) => {
             ],
             'form-utils': ['react-hook-form', '@hookform/resolvers', 'zod'],
             'data-viz': ['recharts'],
-            'utils': ['date-fns', 'clsx', 'tailwind-merge']
+            'utils': ['date-fns', 'clsx', 'tailwind-merge'],
+            'workers': ['./src/workers/analysisWorker.js']
           }
         }
       },
@@ -79,23 +86,10 @@ export default defineConfig(({ mode }) => {
       devSourcemap: true,
       postcss: {
         plugins: [
-          require('autoprefixer'),
-          require('cssnano')({ preset: 'default' })
+          autoprefixer
         ]
       }
     },
     
-    // Enable dependency optimization
-    optimizeDeps: {
-      include: [
-        'react',
-        'react-dom',
-        'react-router-dom',
-        '@radix-ui/react-dialog',
-        '@radix-ui/react-dropdown-menu',
-        'react-hook-form',
-        'zod'
-      ]
-    }
   };
 });
