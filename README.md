@@ -2,6 +2,8 @@
 
 A comprehensive privacy management application built with React and Vite that helps users analyze, monitor, and manage privacy policies and agreements. The application communicates with the Base44 API for data processing and analysis.
 
+<!-- Verification comment added by Devin for testing purposes -->
+
 ## Features
 
 - **Privacy Policy Analysis**: Upload and analyze privacy policies to identify potential risks
