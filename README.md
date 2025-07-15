@@ -47,6 +47,28 @@ You can then run the tests to ensure that everything is working correctly:
 python -m unittest discover tests
 ```
 
+## Installation & Usage as a Library
+
+To install the Privacy Protocol as a library, you can use pip:
+
+```bash
+pip install .
+```
+
+Then, you can use the framework in your own projects:
+
+```python
+from privacy_protocol import PrivacyEnforcer, PolicyStore, ConsentManager, DataTransformationAuditor
+
+# Initialize the components
+policy_store = PolicyStore()
+consent_manager = ConsentManager(policy_store)
+auditor = DataTransformationAuditor()
+enforcer = PrivacyEnforcer(policy_store, consent_manager, auditor)
+
+# ... and so on
+```
+
 ## Vision for the Future
 
 The Privacy Protocol is more than just a software library; it is a vision for a future where privacy is a first-class citizen in the digital world. By providing developers with the tools they need to build privacy-preserving applications, we can create a more trustworthy and equitable digital ecosystem for everyone.
