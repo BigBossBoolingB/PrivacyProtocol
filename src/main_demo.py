@@ -7,62 +7,61 @@ import datetime
 
 from privacy_framework.data_auditor import DataTransformationAuditor
 from privacy_framework.privacy_enforcer import PrivacyEnforcer
-from privacy_framework.policy_verifier import PrivacyPolicyVerifier
+from demo_helpers.mock_data_generator import MockDataGenerator
 
-def demonstrate_persistence_and_auditing():
-    # Initialize stores and managers
+def end_to_end_demo():
+    # 1. Initialize all core components
     policy_store = PolicyStore()
     consent_store = ConsentStore()
     consent_manager = ConsentManager(consent_store)
     auditor = DataTransformationAuditor()
     enforcer = PrivacyEnforcer(policy_store, consent_manager, auditor)
 
-    # Create and save a policy
-    policy = PrivacyPolicy(
-        policy_id="user_data_policy",
+    # 2. Define and Save Sample PrivacyPolicy
+    gdpr_like_policy = PrivacyPolicy(
+        policy_id="gdpr_like_policy",
         version=1,
-        content="This policy governs the collection and use of user data.",
-        rules=["allow_marketing_data_collection", "allow_opt_out"]
+        content="A policy that allows analytics but not marketing.",
+        rules=["allow_analytics"]
     )
-    policy_store.save_policy(policy)
-    print(f"Saved policy: {policy.policy_id} v{policy.version}")
+    policy_store.save_policy(gdpr_like_policy)
+    print(f"Saved policy: {gdpr_like_policy.policy_id}")
 
-    # Verify a property of the policy
-    PrivacyPolicyVerifier.verify_policy(policy, "user_can_opt_out_of_marketing")
+    # 3. Simulate User Consent
+    consent_manager.grant_consent("user_a", "gdpr_like_policy", 1)
+    print("User A has granted consent to the GDPR-like policy.")
 
-    # Grant consent
-    user_id = "user123"
-    consent = consent_manager.grant_consent(user_id, policy.policy_id, policy.version)
-    print(f"Granted consent for user {user_id} to policy {policy.policy_id}")
+    # 4. Generate & Process Data Stream
+    print("\n--- Processing Data Stream ---")
+    for _ in range(3):
+        data_record = MockDataGenerator.generate_user_activity_record()
+        user_id = data_record["user_id"]
 
-    # Process some data
-    user_data = {"name": "John Doe", "email": "john.doe@example.com", "city": "New York"}
-    print(f"\nOriginal data: {user_data}")
-    processed_data = enforcer.process_data(user_id, user_data)
-    print(f"Processed data: {processed_data}")
+        print(f"\nOriginal data for {user_id}: {data_record}")
 
-    # --- Simulate application restart ---
-    print("\n--- Simulating application restart ---")
-    del policy_store
-    del consent_store
-    del consent_manager
-    del auditor
-    del enforcer
+        # Attempt to process for Analytics
+        processed_for_analytics = enforcer.process_data_stream(
+            user_id=user_id,
+            policy_id="gdpr_like_policy",
+            data_record=data_record,
+            intended_purpose="Analytics"
+        )
+        print(f"Processed for Analytics: {processed_for_analytics}")
 
-    # Re-initialize stores and managers
-    policy_store = PolicyStore()
-    consent_store = ConsentStore()
-    consent_manager = ConsentManager(consent_store)
+        # Attempt to process for Marketing
+        processed_for_marketing = enforcer.process_data_stream(
+            user_id=user_id,
+            policy_id="gdpr_like_policy",
+            data_record=data_record,
+            intended_purpose="Marketing"
+        )
+        print(f"Processed for Marketing: {processed_for_marketing}")
 
-    # Load policy and check consent
-    loaded_policy = policy_store.load_policy(policy.policy_id)
-    if loaded_policy:
-        print(f"Loaded policy: {loaded_policy.policy_id} v{loaded_policy.version}")
-        has_consent = consent_manager.has_consent(user_id, loaded_policy.policy_id)
-        print(f"User {user_id} has consent for policy {loaded_policy.policy_id}: {has_consent}")
-    else:
-        print(f"Could not load policy: {policy.policy_id}")
-
+    # 7. Show Audit Log
+    print("\n--- Audit Log ---")
+    with open(auditor.log_file_path, "r") as f:
+        for line in f.readlines():
+            print(line.strip())
 
 if __name__ == "__main__":
-    demonstrate_persistence()
+    end_to_end_demo()
