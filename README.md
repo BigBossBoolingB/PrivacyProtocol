@@ -124,6 +124,28 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Ready to take control of your digital privacy?** [Get started now](http://localhost:3000) or explore our [comprehensive documentation](ARCHITECTURE.md) to understand how Privacy Protocol works.
 
+## Installation & Usage as a Library
+
+To install the Privacy Protocol as a library, you can use pip:
+
+```bash
+pip install .
+```
+
+Then, you can use the framework in your own projects:
+
+```python
+from privacy_protocol import PrivacyEnforcer, PolicyStore, ConsentManager, DataTransformationAuditor
+
+# Initialize the components
+policy_store = PolicyStore()
+consent_manager = ConsentManager(policy_store)
+auditor = DataTransformationAuditor()
+enforcer = PrivacyEnforcer(policy_store, consent_manager, auditor)
+
+# ... and so on
+```
+
 ## Features
 
 - **Privacy Policy Analysis**: Upload and analyze privacy policies to identify potential risks

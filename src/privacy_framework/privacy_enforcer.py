@@ -7,7 +7,18 @@ from .obfuscation_engine import ObfuscationEngine
 from typing import Dict, Any, Optional
 
 class PrivacyEnforcer:
+    """
+    Orchestrates the entire privacy enforcement process, from checking consent to obfuscating data.
+    """
     def __init__(self, policy_store: PolicyStore, consent_manager: ConsentManager, auditor: DataTransformationAuditor):
+        """
+        Initializes the PrivacyEnforcer.
+
+        Args:
+            policy_store (PolicyStore): The policy store to use.
+            consent_manager (ConsentManager): The consent manager to use.
+            auditor (DataTransformationAuditor): The auditor to use for logging.
+        """
         self.policy_store = policy_store
         self.consent_manager = consent_manager
         self.auditor = auditor
@@ -18,6 +29,16 @@ class PrivacyEnforcer:
     def process_data_stream(self, user_id: str, policy_id: str, data_record: Dict[str, Any], intended_purpose: str, intended_third_party: Optional[str] = None) -> Dict[str, Any]:
         """
         Processes a data stream according to the user's consent and the privacy policy.
+
+        Args:
+            user_id (str): The ID of the user.
+            policy_id (str): The ID of the policy.
+            data_record (Dict[str, Any]): The data record to process.
+            intended_purpose (str): The intended purpose for data processing.
+            intended_third_party (Optional[str]): The intended third party for data sharing. Defaults to None.
+
+        Returns:
+            Dict[str, Any]: The processed data record with a privacy status.
         """
         policy = self.policy_store.load_policy(policy_id)
         consent = self.consent_manager.consent_store.load_latest_consent(user_id, policy_id)

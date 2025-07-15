@@ -12,6 +12,13 @@ class PrivacyPolicyVerifier:
         """
         Conceptual placeholder for formal policy verification.
         For demonstration, it returns True for a known property and False otherwise.
+
+        Args:
+            policy (PrivacyPolicy): The policy to verify.
+            property_to_verify (str): The property to verify.
+
+        Returns:
+            bool: True if the property is verified, False otherwise.
         """
         print(f"Formally verifying property '{property_to_verify}' for policy '{policy.policy_id}'...")
 

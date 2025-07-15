@@ -2,11 +2,22 @@ from .privacy_policy import PrivacyPolicy
 from .user_consent import UserConsent
 
 class PolicyEvaluator:
+    """
+    Evaluates whether a certain purpose is permitted by a policy and user consent.
+    """
     @staticmethod
     def is_purpose_permitted(policy: PrivacyPolicy, consent: UserConsent, purpose: str) -> bool:
         """
         Checks if the intended purpose is permitted by the policy and consent.
         For demonstration, it uses a simple rule-based evaluation.
+
+        Args:
+            policy (PrivacyPolicy): The policy to evaluate.
+            consent (UserConsent): The user's consent.
+            purpose (str): The intended purpose for data processing.
+
+        Returns:
+            bool: True if the purpose is permitted, False otherwise.
         """
         if not consent.granted:
             return False

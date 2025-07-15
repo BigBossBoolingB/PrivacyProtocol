@@ -6,13 +6,30 @@ from typing import List, Optional
 from .user_consent import UserConsent
 
 class ConsentStore:
+    """
+    Manages the storage and retrieval of UserConsent objects using JSON file persistence.
+    """
     def __init__(self, storage_path: str = "_data/consents/"):
+        """
+        Initializes the ConsentStore.
+
+        Args:
+            storage_path (str): The directory where consents will be stored.
+        """
         self.storage_path = storage_path
         if not os.path.exists(self.storage_path):
             os.makedirs(self.storage_path)
 
     def save_consent(self, consent: UserConsent) -> bool:
-        """Saves a consent record to a file."""
+        """
+        Saves a consent record to a file.
+
+        Args:
+            consent (UserConsent): The consent record to save.
+
+        Returns:
+            bool: True if saving was successful, False otherwise.
+        """
         try:
             user_dir = os.path.join(self.storage_path, consent.user_id)
             if not os.path.exists(user_dir):
@@ -28,7 +45,16 @@ class ConsentStore:
             return False
 
     def load_latest_consent(self, user_id: str, policy_id: str) -> Optional[UserConsent]:
-        """Loads the most recent active consent for a user and policy."""
+        """
+        Loads the most recent active consent for a user and policy.
+
+        Args:
+            user_id (str): The ID of the user.
+            policy_id (str): The ID of the policy.
+
+        Returns:
+            Optional[UserConsent]: The latest active consent, or None if not found.
+        """
         user_dir = os.path.join(self.storage_path, user_id)
         if not os.path.exists(user_dir):
             return None
@@ -51,7 +77,15 @@ class ConsentStore:
         return latest_consent
 
     def load_all_consents(self, user_id: str) -> List[UserConsent]:
-        """Loads all consent records for a user."""
+        """
+        Loads all consent records for a user.
+
+        Args:
+            user_id (str): The ID of the user.
+
+        Returns:
+            List[UserConsent]: A list of all consent records for the user.
+        """
         user_dir = os.path.join(self.storage_path, user_id)
         if not os.path.exists(user_dir):
             return []
