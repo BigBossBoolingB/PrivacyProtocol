@@ -83,7 +83,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "babel-jest": "^29.7.0",
-    "eslint": "^9.19.0",
+    "eslint": "^8.56.0",
     "eslint-plugin-jest": "^27.9.0",
     "eslint-plugin-react": "^7.37.4",
     "eslint-plugin-react-hooks": "^5.0.0",
