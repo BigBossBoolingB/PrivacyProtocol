@@ -7,6 +7,10 @@ class ConsentManager:
         self.consent_store = consent_store
 
     def grant_consent(self, user_id: str, policy_id: str, policy_version: int) -> UserConsent:
+        """
+        Grants consent and conceptually signs it.
+        In a real implementation, this would involve cryptographic signing.
+        """
         consent = UserConsent(
             consent_id=f"consent_{user_id}_{policy_id}",
             user_id=user_id,
@@ -15,6 +19,14 @@ class ConsentManager:
             granted=True,
             timestamp=datetime.datetime.now()
         )
+
+        # Conceptual placeholder for cryptographic signing.
+        # This would use a private key associated with the user to sign the consent object.
+        # This is a strategic link to DigiSocialBlock's identity system and EmPower1 Blockchain.
+        # Example:
+        # signed_consent = self.crypto_service.sign(consent, user_private_key)
+        # self.consent_store.save_consent(signed_consent)
+
         self.consent_store.save_consent(consent)
         return consent
 
